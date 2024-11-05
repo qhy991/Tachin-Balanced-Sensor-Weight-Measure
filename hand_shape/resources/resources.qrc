@@ -1,8 +1,0 @@
-<RCC>
-  <qresource prefix="logo">
-    <file>tujian.ico</file>
-  </qresource>
-  <qresource prefix="hand">
-    <file>hand.png</file>
-  </qresource>
-</RCC>

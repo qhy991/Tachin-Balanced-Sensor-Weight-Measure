@@ -1,1 +1,0 @@
-{"num_class": 3, "base_filter_count": 64, "residual_unit_repetition": 2, "dropout": 0.1, "base_learn_rate": 0.0002, "learn_rate_decay": 0.1}
