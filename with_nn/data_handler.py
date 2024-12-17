@@ -1,7 +1,7 @@
 import warnings
 from with_nn.nn.tactile_distribution_net.tactile_distribution_interface import TactileDistributionInterface
 
-from large.sensor_driver import UsbSensorDriver as SensorDriver
+from large.sensor_driver import LargeSensorDriver as SensorDriver
 SCALE = (32768. * 25. / 5.) ** -1
 
 from collections import deque

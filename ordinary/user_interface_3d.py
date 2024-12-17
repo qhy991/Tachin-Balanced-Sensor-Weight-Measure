@@ -15,8 +15,7 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from large.sensor_driver import UsbSensorDriver
-from server.socket_client import SocketClient
+from large.sensor_driver import LargeSensorDriver
 #
 from config import config, save_config
 from scipy.interpolate import interp1d

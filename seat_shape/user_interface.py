@@ -19,7 +19,7 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler_multiple import DataHandler
-from large.sensor_driver import UsbSensorDriver
+from large.sensor_driver import LargeSensorDriver
 #
 from config import config, save_config, config_multiple
 from data.convert_data import ReplayDataSource

@@ -11,21 +11,21 @@ import crcmod.predefined
 crc = crcmod.predefined.mkCrcFun('crc-ccitt-false')
 
 MESSAGE_SIZE = 1024
-OFFSET_0 = 0
-OFFSET_1 = 256
-PACKAGE_SIZE = 136
-PACKAGE_COUNT_IN_FRAME = 64
-SENSOR_SIZE = 64
-BYTES_PER_POINT = 2
-POINTS_PER_PACKAGE = 64
+HEAD_LENGTH = 6
+CRC_LENGTH = 2
 
-FOLDING = json.load(open('config_array.json', 'rt'))['column_array']
+from config import config_array
+FOLDING_ROW = config_array['row_array']
+FOLDING_COL = config_array['column_array']
 
 
 class UsbBackend:
-    def __init__(self, buffer_length):
+    def __init__(self, buffer_length, sensor_shape, bytes_per_point):
         # buffer_length为储存的长度
         # 在子线程中读取USB协议传来的数据。主线程会将数据取走
+        self.sensor_shape = sensor_shape
+        self.bytes_per_point = bytes_per_point
+        self.package_size = HEAD_LENGTH + CRC_LENGTH + sensor_shape[1] * bytes_per_point
 
         # USB相关
         self.bc = BulkChannel()
@@ -33,9 +33,8 @@ class UsbBackend:
 
         # 临时容器
         self.last_message = np.ndarray((MESSAGE_SIZE,), dtype=np.uint8)
-        self.preparing_frame = [np.zeros((SENSOR_SIZE * SENSOR_SIZE,), dtype=np.uint8) for _ in range(BYTES_PER_POINT)]
-        self.preparing_cursor = 0
-        self.finished_frame = [np.zeros((SENSOR_SIZE * SENSOR_SIZE,), dtype=np.uint8) for _ in range(BYTES_PER_POINT)]
+        self.preparing_frame = [np.zeros((self.sensor_shape[0] * self.sensor_shape[1], ), dtype=np.uint8) for _ in range(self.bytes_per_point)]
+        self.finished_frame = [np.zeros((self.sensor_shape[0] * self.sensor_shape[1], ), dtype=np.uint8) for _ in range(self.bytes_per_point)]
         self.last_finish_time = 0.
         self.last_frame_number = None
         self.last_package_number = None
@@ -104,19 +103,19 @@ class UsbBackend:
         offset = 0
         m = len(self.message_cache)
 
-        while offset < (m - PACKAGE_SIZE):
+        while offset < (m - self.package_size):
             # 格式：AA 10 33 “长度” 帧号 包号 数据 CRC
             self.warn_info = ''
             if (self.message_cache[offset] == 0xaa)\
-                    & (self.message_cache[offset + PACKAGE_SIZE] == 0xaa):
+                    & (self.message_cache[offset + self.package_size] == 0xaa):
 
                 # 包头效验正确
                 frame_number = self.message_cache[offset + 4]
                 package_number = self.message_cache[offset + 5]
                 data = self.message_cache[offset
-                                          :offset + 6 + POINTS_PER_PACKAGE * BYTES_PER_POINT]
-                crc_received = self.message_cache[offset + 6 + POINTS_PER_PACKAGE * BYTES_PER_POINT
-                                                  :offset + 8 + POINTS_PER_PACKAGE * BYTES_PER_POINT]
+                                          :offset + HEAD_LENGTH + self.sensor_shape[1] * self.bytes_per_point]
+                crc_received = self.message_cache[offset + HEAD_LENGTH + self.sensor_shape[1] * self.bytes_per_point
+                                                  :offset + HEAD_LENGTH + CRC_LENGTH + self.sensor_shape[1] * self.bytes_per_point]
                 crc_calculated = self.__calculate_crc(data)
                 if crc_received[0] * 256 + crc_received[1] != crc_calculated:
                     self.warn_info = 'CRC check failed'
@@ -126,7 +125,7 @@ class UsbBackend:
 
                 if flag:
                     self.__write_data(offset, package_number)
-                offset += PACKAGE_SIZE
+                offset += self.package_size
             else:
                 offset += 1
                 self.warn_info = ''
@@ -146,7 +145,7 @@ class UsbBackend:
                 self.warn_info = ''
         else:
             if package_number == 0:
-                if self.last_package_number == PACKAGE_COUNT_IN_FRAME - 1:
+                if self.last_package_number == self.sensor_shape[0] - 1:
                     self.__finish_frame()
                     flag = True
                 else:
@@ -166,13 +165,17 @@ class UsbBackend:
         return flag
 
     def __write_data(self, offset, package_number):
-        self.preparing_cursor = POINTS_PER_PACKAGE * package_number.astype(np.uint16)
-        begin = self.preparing_cursor
-        end = self.preparing_cursor + POINTS_PER_PACKAGE
+        preparing_cursor = self.sensor_shape[1] * FOLDING_ROW[package_number.astype(np.uint16)]
+        begin = preparing_cursor
+        end = preparing_cursor + self.sensor_shape[1]
         slice_to = slice(begin, end)
-        slices_from = [slice(offset + 6 + bit, offset + 6 + POINTS_PER_PACKAGE * BYTES_PER_POINT + bit, BYTES_PER_POINT) for bit in range(BYTES_PER_POINT)]
+        slices_from = [slice(
+            offset + HEAD_LENGTH + bit,
+            offset + HEAD_LENGTH + self.sensor_shape[1] * self.bytes_per_point + bit,
+            self.bytes_per_point
+        ) for bit in range(self.bytes_per_point)]
         for bit, slice_from in enumerate(slices_from):
-            self.preparing_frame[bit][slice_to] = self.message_cache[slice_from][FOLDING]
+            self.preparing_frame[bit][slice_to] = self.message_cache[slice_from][FOLDING_COL]
 
     def read_void(self):
         try:
@@ -182,9 +185,8 @@ class UsbBackend:
 
     def __finish_frame(self):
         with self.lock:
-            for bit in range(BYTES_PER_POINT):
+            for bit in range(self.bytes_per_point):
                 self.finished_frame[bit][...] = self.preparing_frame[bit][...]
-                self.preparing_cursor = 0
             time_now = time.time()
             if self.last_finish_time > 0:
                 self.last_interval = time_now - self.last_finish_time
@@ -192,9 +194,8 @@ class UsbBackend:
             self.buffer.append((self.finished_frame, self.last_finish_time))
 
     def __abort_frame(self):
-        for bit in range(BYTES_PER_POINT):
+        for bit in range(self.bytes_per_point):
             self.preparing_frame[bit][...] = 0
-            self.preparing_cursor = 0
 
     @staticmethod
     def __calculate_crc(data):
@@ -274,7 +275,7 @@ class BulkChannel:
 
 if __name__ == '__main__':
     # 简单的调用测试
-    ub = UsbBackend(16)  # 使用中支持在UsbBackend里存一些数后一起取出。如果发现数据不完整，酌情增加该数值
+    ub = UsbBackend(16, (16, 16), 2)  # 使用中支持在UsbBackend里存一些数后一起取出。如果发现数据不完整，酌情增加该数值
     ub.start(1)  # 卡号
     while True:
         bits, t = ub.get()

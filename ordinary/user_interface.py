@@ -15,10 +15,11 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from large.sensor_driver import UsbSensorDriver
+from large.sensor_driver import LargeSensorDriver
+from large.sensor_driver import SensorDriver16
 from large.sensor_driver_reduced import LargeSensorDriverReduced
 from small.sensor_driver import SmallSensorDriver
-from server.socket_client import SocketClient
+# from server.socket_client import SocketClient
 #
 from config import config, save_config
 
@@ -78,9 +79,13 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.line_tracing = self.create_a_line(self.fig_2)
         self.plot = self.create_an_image(self.fig_image)
         if mode == 'standard':
-            self.data_handler = DataHandler(UsbSensorDriver)
+            self.data_handler = DataHandler(LargeSensorDriver)
             self.scaling = log
             self.__set_using_calibration(False)
+        elif mode == '16':
+            self.data_handler = DataHandler(SensorDriver16)
+            self.scaling = log
+            self.__set_using_calibration
         elif mode == 'socket':
             self.data_handler = DataHandler(SocketClient)
             self.scaling = log
@@ -274,7 +279,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         else:
             self.button_save_to.setText("采集到...")
         if self.data_handler.driver.__class__.__name__ in \
-                ['FakeSensorDriver', 'SmallSensorDriver', 'SocketClient', 'UsbSensorDriver', 'LargeSensorDriverReduced']:
+                ['FakeSensorDriver', 'SmallSensorDriver', 'SocketClient', 'UsbSensorDriver', 'LargeSensorDriver', 'SensorDriver16']:
             self.com_port.setEnabled(not self.is_running)
         else:
             self.com_port.setEnabled(False)

@@ -1,6 +1,7 @@
 
 from PIL import Image, ImageFilter
 from scipy.signal import convolve2d
+from scipy.ndimage import median_filter
 import numpy as np
 
 
@@ -8,6 +9,7 @@ class Interpolation:
 
     def __init__(self, interp, blur, sensor_shape):
         self.interp = interp
+        self.blur = blur
         if blur > 16:
             raise Exception("过大的模糊参数")
         if blur > 0:
@@ -24,6 +26,9 @@ class Interpolation:
         if isinstance(data, np.ndarray):
             data = data.astype(np.float)
             if self.blur_kernel is not None:
+                # data = convolve2d(data, self.blur_kernel, mode='same', boundary='fill', fillvalue=0)
+                # 改成中值滤波
+                data = median_filter(data, size=2 * int(self.blur) + 1)
                 data = convolve2d(data, self.blur_kernel, mode='same', boundary='fill', fillvalue=0)
             im_interp = Image.fromarray(data).resize(size=(self.interp * data.shape[1],
                                                            self.interp * data.shape[0]),

@@ -5,7 +5,7 @@ import atexit
 import time
 from server.utils import crc, CommandCodes, wait
 import warnings
-from large.sensor_driver import UsbSensorDriver
+from large.sensor_driver import LargeSensorDriver
 
 QUERY_SUCCESS_LENGTH = 1 + 2 + 2 * 4096
 QUERY_FAIL_LENGTH = 1

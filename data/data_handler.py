@@ -50,6 +50,7 @@ class DataHandler:
         self.zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)  # 零点
         self.value_mid = deque(maxlen=self.max_len)  # 中值
         self.maximum = deque(maxlen=self.max_len)  # 峰值
+        self.mean = deque(maxlen=self.max_len)  # 平均值
         self.tracing = deque(maxlen=self.max_len)  # 追踪点
         self.t_tracing = deque(maxlen=self.max_len)  # 追踪点的时间。由于更新追踪点时会清空，故单独记录
         self.tracing_point = (0, 0)  # 当前的追踪点
@@ -125,6 +126,7 @@ class DataHandler:
         self.time_ms.clear()
         self.value_mid.clear()
         self.maximum.clear()
+        self.mean.clear()
         self.tracing.clear()
         self.t_tracing.clear()
         self.lock.release()
@@ -179,6 +181,7 @@ class DataHandler:
                 self.time_ms.append(np.array([time_after_begin * 1e3], dtype='>i2'))  # ms
                 self.value_mid.append(np.median(smoothed_value))
                 self.maximum.append(np.max(smoothed_value))
+                self.mean.append(np.mean(smoothed_value))
                 self.tracing.append(np.mean(np.asarray(smoothed_value)[
                                                self.tracing_point[0] * self.interpolation.interp : (self.tracing_point[0] + 1) * self.interpolation.interp,
                                                self.tracing_point[1] * self.interpolation.interp : (self.tracing_point[1] + 1) * self.interpolation.interp]))
@@ -221,7 +224,7 @@ class DataHandler:
         assert interpolate == int(interpolate)
         assert 1 <= interpolate <= 8
         assert blur == float(blur)
-        assert 0. <= blur <= 4.
+        assert 0. <= blur <= 8.
         self.interpolation = Interpolation(interpolate, blur, self.driver.SENSOR_SHAPE)
         pass
 
