@@ -53,7 +53,7 @@ LABEL_PRESSURE = 'p/kPa'
 LABEL_VALUE = 'Value'
 LABEL_RESISTANCE = 'Resistance/(kΩ)'
 Y_LIM_INITIAL = config['y_lim']
-DISPLAY_RANGE = [[24, 40], [24, 40]]
+DISPLAY_RANGE = [[0, 64], [0, 64]]
 MINIMUM_Y_LIM = 0.0
 MAXIMUM_Y_LIM = 5.0
 assert Y_LIM_INITIAL.__len__() == 2
@@ -92,7 +92,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self.catch_exceptions
         #
         if mode == 'direct':
-            self.data_handler = DataHandler(UsbSensorDriver)
+            self.data_handler = DataHandler(LargeSensorDriver)
         elif mode == 'socket':
             self.data_handler = DataHandler(SocketClient)
         else:
@@ -100,11 +100,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.fixed_range = fixed_range
         self.is_running = False
         # 绘图用固定坐标
-        # xx = np.arange(self.data_handler.driver.SENSOR_SHAPE[0] * self.data_handler.interpolation.interp)
-        xx = np.arange((DISPLAY_RANGE[0][1] - DISPLAY_RANGE[0][0]) * self.data_handler.interpolation.interp)
+        xx = np.arange(self.data_handler.driver.SENSOR_SHAPE[0] * self.data_handler.interpolation.interp)
         xx = xx / xx.shape[0] - 0.5
-        # yy = np.arange(self.data_handler.driver.SENSOR_SHAPE[1] * self.data_handler.interpolation.interp)
-        yy = np.arange((DISPLAY_RANGE[1][1] - DISPLAY_RANGE[1][0]) * self.data_handler.interpolation.interp)
+        yy = np.arange(self.data_handler.driver.SENSOR_SHAPE[1] * self.data_handler.interpolation.interp)
         yy = yy / yy.shape[0] - 0.5
         self.xx, self.yy = xx, yy
         self.log_y_lim = Y_LIM_INITIAL
@@ -120,6 +118,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 是否处于使用标定状态
         self.scaling = log
         # 绘图用
+
     def catch_exceptions(self, ty, value, tb):
         # 错误重定向为弹出对话框
         traceback_format = traceback.format_exception(ty, value, tb)
@@ -200,6 +199,12 @@ class Window(QtWidgets.QWidget, Ui_Form):
         line.get_axis = lambda: ax
         return line
 
+    def __apply_swap(self, data):
+        if config['xy_swap']:
+            return data.T
+        else:
+            return data
+
     @property
     def y_lim(self):
         # 这里经常改
@@ -264,7 +269,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def __set_interpolate_and_blur(self):
         # interpolate = int(self.combo_interpolate.currentText())
         # blur = float(self.combo_blur.currentText())
-        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=2)
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=4)
         # config['interpolate_index'] = self.combo_interpolate.currentIndex()
         # config['blur_index'] = self.combo_blur.currentIndex()
         self.dump_config()
@@ -283,21 +288,13 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def initialize_buttons(self):
         self.button_start.clicked.connect(self.start)
         self.button_stop.clicked.connect(self.stop)
-        # self.combo_filter_time.setCurrentIndex(config.get('filter_time_index'))
-        # self.combo_interpolate.setCurrentIndex(config.get('interpolate_index'))
-        # self.combo_blur.setCurrentIndex(config.get('blur_index'))
         self.__set_filter()
         self.__set_interpolate_and_blur()
-        # self.combo_filter_time.currentIndexChanged.connect(self.__set_filter)
-        # self.combo_interpolate.currentIndexChanged.connect(self.__set_interpolate_and_blur)
-        # self.combo_blur.currentIndexChanged.connect(self.__set_interpolate_and_blur)
         self.set_enable_state()
         self.button_set_zero.clicked.connect(self.data_handler.set_zero)
         self.button_abandon_zero.clicked.connect(self.data_handler.abandon_zero)
         self.button_save_to.clicked.connect(self.__trigger_save_button)
         # 标定功能
-        # self.button_load_calibration.clicked.connect(self.__set_calibrator)
-        # self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
 
     def __trigger_save_button(self):
         if self.data_handler.output_file:
@@ -329,7 +326,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
                        'glOptions': 'additive',
                         'smooth': True,
         'drawEdges': True,
-        'edgeColor': (1, 1, 1, 0.01),
+        'edgeColor': (1, 1, 1, 0.05),
                        }
     # 设置上色、光源
 
@@ -339,12 +336,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
             time_now = time.time()
             if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
                 self.view.clear()
-
-                Z = log(np.array(self.data_handler.smoothed_value[-1]))
-                Z = Z[DISPLAY_RANGE[0][0] : DISPLAY_RANGE[0][1], DISPLAY_RANGE[1][0] : DISPLAY_RANGE[1][1]]
+                Z = self.__apply_swap(log(np.array(self.data_handler.smoothed_value[-1])))
                 Z = (np.clip(Z, min(self.y_lim), max(self.y_lim)) - min(self.y_lim)) / (max(self.y_lim) - min(self.y_lim))
                 colors = create_color_map(Z)
-                self.surface = gl.GLSurfacePlotItem(x=-self.xx, y=self.yy, z=Z * 0.05, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
+                self.surface = gl.GLSurfacePlotItem(x=self.xx, y=self.yy, z=Z * 0.05, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
                 # self.surface = gl.GLSurfacePlotItem(x=X, y=Y, z=Z * 0.1, **self.MESH_PLOT_STYLE)
 
                 self.view.addItem(self.surface)
@@ -358,10 +353,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def trigger_null(self):
         self.view.clear()
-        Z = np.zeros([int(_ * self.data_handler.interpolation.interp) for _ in self.data_handler.driver.SENSOR_SHAPE])
-        Z = Z[DISPLAY_RANGE[0][0]: DISPLAY_RANGE[0][1], DISPLAY_RANGE[1][0]: DISPLAY_RANGE[1][1]]
+        Z = self.__apply_swap(np.zeros([int(_ * self.data_handler.interpolation.interp) for _ in self.data_handler.driver.SENSOR_SHAPE]))
         colors = create_color_map(Z)
-        self.surface = gl.GLSurfacePlotItem(x=-self.xx, y=self.yy, z=Z * 0.1, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
+        self.surface = gl.GLSurfacePlotItem(x=self.xx, y=self.yy, z=Z * 0.05, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
         self.view.addItem(self.surface)
 
     def closeEvent(self, a0: QtGui.QCloseEvent) -> None:

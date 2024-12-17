@@ -85,7 +85,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         elif mode == '16':
             self.data_handler = DataHandler(SensorDriver16)
             self.scaling = log
-            self.__set_using_calibration
+            self.__set_using_calibration(False)
         elif mode == 'socket':
             self.data_handler = DataHandler(SocketClient)
             self.scaling = log
@@ -208,6 +208,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.plot.getImageItem().wheelEvent = self.__on_mouse_wheel
         # 设置范围
         self.__set_xy_range()
+        # 设置invert
+        self.plot.getView().invertX(config['x_invert'])
+        self.plot.getView().invertY(config['y_invert'])
 
     def create_a_line(self, fig_widget: pyqtgraph.GraphicsLayoutWidget):
         ax: pyqtgraph.PlotItem = fig_widget.addPlot()
@@ -285,6 +288,12 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.com_port.setEnabled(False)
             self.com_port.setText("-")
 
+    def __apply_swap(self, data):
+        if config['xy_swap']:
+            return data.T
+        else:
+            return data
+
     def __set_filter(self):
         self.data_handler.set_filter("无", self.combo_filter_time.currentText())
         config['filter_time_index'] = self.combo_filter_time.currentIndex()
@@ -347,11 +356,6 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.com_port.setText(config['port'])
 
     def __set_xy_range(self):
-        # interp = self.data_handler.interpolation.interp
-        # x_range = [DISPLAY_RANGE[0][0] * interp - 0.5, (DISPLAY_RANGE[0][1] - 1) * interp - 0.5]
-        # y_range = [DISPLAY_RANGE[1][0] * interp - 0.5, (DISPLAY_RANGE[1][1] - 1) * interp - 0.5]
-        # self.plot.getView().setRange(xRange=x_range,
-        #                              yRange=y_range)
         pass
 
     def trigger(self):
@@ -359,7 +363,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.data_handler.trigger()
             time_now = time.time()
             if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
-                self.plot.setImage(self.scaling(np.array(self.data_handler.smoothed_value[-1].T)),
+                self.plot.setImage(self.__apply_swap(self.scaling(np.array(self.data_handler.smoothed_value[-1].T))),
                                    levels=self.y_lim)
                 self.__set_xy_range()
                 self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.maximum))
@@ -373,9 +377,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
             raise e
 
     def trigger_null(self):
-        self.plot.setImage(np.zeros(
+        self.plot.setImage(self.__apply_swap(np.zeros(
             [_ * self.data_handler.interpolation.interp for _ in self.data_handler.driver.SENSOR_SHAPE]).T
-                           - MAXIMUM_Y_LIM,
+                           - MAXIMUM_Y_LIM),
                            levels=self.y_lim)
         self.__set_xy_range()
 

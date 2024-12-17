@@ -268,6 +268,12 @@ class Window(QtWidgets.QWidget, Ui_Form):
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
+    def __apply_swap(self, data):
+        if config['xy_swap']:
+            return data.T
+        else:
+            return data
+
     def __apply_y_lim(self):
         for line in [self.line_maximum, self.line_tracing]:
             line.getViewBox().setYRange(*self.y_lim)
@@ -339,7 +345,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.data_handler.trigger()
             time_now = time.time()
             if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
-                self.plot.setImage(log(np.array(self.data_handler.smoothed_value[-1].T)),
+                self.plot.setImage(self.__apply_swap(log(np.array(self.data_handler.smoothed_value[-1].T))),
                                    levels=self.y_lim)
                 self.__set_xy_range()
                 self.plot.getView().invertX(X_INVERT)
@@ -355,8 +361,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
             raise e
 
     def trigger_null(self):
-        self.plot.setImage(np.zeros(
-            [_ * self.data_handler.interpolation.interp for _ in self.data_handler.driver.SENSOR_SHAPE]).T
+        self.plot.setImage(self.__apply_swap(np.zeros(
+            [_ * self.data_handler.interpolation.interp for _ in self.data_handler.driver.SENSOR_SHAPE])).T
                            - MAXIMUM_Y_LIM,
                            levels=self.y_lim)
         self.__set_xy_range()
