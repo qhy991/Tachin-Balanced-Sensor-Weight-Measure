@@ -21,8 +21,7 @@ from multiple_skins.tactile_spliting import TactileDriverWithPreprocessing
 from data.interpolation import Interpolation
 from data.preprocessing import MedianFilter
 from utils.performance_monitor import Ticker
-from PyQt5.QtGui import QWheelEvent
-from pyqtgraph.widgets.RawImageWidget import RawImageWidget
+from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 
 cmap = pyqtgraph.ColorMap(np.linspace(0, 1, 17), (np.array(config_mapping['color_map']) * 255).astype(int))
 legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
@@ -44,50 +43,45 @@ TRIGGER_TIME_RECORD_LENGTH = 10
 
 class HandPlotManager:
 
-    def __init__(self, fig_widget_2d: pyqtgraph.widgets.RawImageWidget.RawImageWidget,
+    def __init__(self, fig_widget_2d: pyqtgraph.GraphicsLayoutWidget,
                  fig_widget_1d: pyqtgraph.GraphicsLayoutWidget,
                  data_handler: DataHandler,
                  downsample=1):
-        # self.img_view = pyqtgraph.ImageView()
-        # self.img_view.ui.histogram.hide()
-        # self.img_view.ui.menuBtn.hide()
-        # self.img_view.ui.roiBtn.hide()
-        # fig_widget_2d.setBackground(0.95)
-        # layout = QtWidgets.QGridLayout()
-        # layout.setSpacing(0)
-        # layout.setContentsMargins(0, 0, 0, 0)
-        # layout.addWidget(self.img_view, 0, 0)
-        # fig_widget_2d.setLayout(layout)
-        # self.img_view.getView().setBackgroundColor(0.95)
-        # self.img_view.getView().setMouseEnabled(False, False)
-        # self.img_view.getView().setMenuEnabled(False)
-        # self.img_view.adjustSize()
-        self.img_view = fig_widget_2d
-
+        self.img_view = pyqtgraph.ImageView()
+        self.img_view.ui.histogram.hide()
+        self.img_view.ui.menuBtn.hide()
+        self.img_view.ui.roiBtn.hide()
+        fig_widget_2d.setBackground(0.95)
+        layout = QtWidgets.QGridLayout()
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.img_view, 0, 0)
+        fig_widget_2d.setLayout(layout)
+        self.img_view.getView().setBackgroundColor(0.95)
+        self.img_view.getView().setMouseEnabled(False, False)
+        self.img_view.getView().setMenuEnabled(False)
+        self.img_view.adjustSize()
+        #
         self.log_y_lim = (config['y_lim'][0], config['y_lim'][1])
-        # imageAxisOrder
         #
         self.dd = data_handler
         # 加载底图
+        self.base_image = Image.open(os.path.join(RESOURCE_FOLDER, 'hand.png')).convert('RGBA')
         self.downsample = downsample
-        self.original_base_image = Image.open(os.path.join(RESOURCE_FOLDER, 'hand.png')).convert('RGBA')
-        self.original_base_image = self.original_base_image.resize((self.original_base_image.width // downsample,
-                                                  self.original_base_image.height // downsample),
+        self.base_image = self.base_image.resize((self.base_image.width // downsample,
+                                                  self.base_image.height // downsample),
                                                  resample=Image.BILINEAR)
-        self.base_image = self.original_base_image.copy()
-
         self.processing_image = self.base_image.copy()
         self.current_image = np.array(self.processing_image).transpose((1, 0, 2))
         img = np.array(self.current_image).transpose((1, 0, 2))
         if is_left_hand:
             img = img[::-1, :, :]
-        self.img_view.setImage(img)
+        self.img_view.setImage(img, levels=(0, 255))
+        self.img_view.autoRange()
         # mapping_onto_image
         rects = {
-            int(k): [((pixel_mapping[str(k)][0] + 0.5 * self.downsample) // self.downsample + 1,
-                      (pixel_mapping[str(k)][1] + 0.5 * self.downsample) // self.downsample + 1),
-                     ((pixel_mapping[str(k)][2] + 0.5 * self.downsample) // self.downsample + 1,
-                      (pixel_mapping[str(k)][3] + 0.5 * self.downsample) // self.downsample + 1),
+            int(k): [(pixel_mapping[k][0] // self.downsample, pixel_mapping[k][1] // self.downsample),
+                     (pixel_mapping[k][2] // self.downsample, pixel_mapping[k][3] // self.downsample),
                      True,
                      self.make_mask((range_mapping[k][6], range_mapping[k][5])
                                     if range_mapping[k][4]
@@ -98,7 +92,7 @@ class HandPlotManager:
         self.proj_funcs = {idx: self.make_projection_function(rect) for idx, rect in rects.items()}
         # 曲线图
         ax: pyqtgraph.PlotItem = fig_widget_1d.addPlot()
-        ax.setLabel(axis='left', text='电阻（最小值） (kΩ)')
+        ax.setLabel(axis='left', text='电阻（调和平均） (kΩ)')
         ax.getAxis('left').enableAutoSIPrefix(False)
         ax.setLabel(axis='bottom', text='时间 (s)')
         ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
@@ -122,17 +116,18 @@ class HandPlotManager:
         self.filters = {int(idx): MedianFilter({'SENSOR_SHAPE': (1, 1), 'DATA_TYPE': float}, 2)
                         for idx in range_mapping.keys()}
         max_len = self.dd.max_len
-        self.region_max = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
+        self.region_mean = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
         self.time = deque(maxlen=max_len)
         #
-        self.img_view.wheelEvent = self.__on_mouse_wheel
+        self.img_view.getImageItem().wheelEvent = self.__on_mouse_wheel
         #
         self.lock = threading.Lock()
         #
         threading.Thread(target=self.process_forever, daemon=True).start()
-        #
-        self.img_view.resizeEvent = self.resize_event
-        self.resize_transform = []  # 包括了缩放的比例和偏移量
+
+    def save_y_lim(self):
+        config['y_lim'] = (self.log_y_lim[0], self.log_y_lim[1])
+        save_config()
 
     @staticmethod
     def make_mask(shape, scale=1.):
@@ -144,47 +139,6 @@ class HandPlotManager:
         mask *= scale
         return mask
 
-    def save_y_lim(self):
-        config['y_lim'] = (self.log_y_lim[0], self.log_y_lim[1])
-        save_config()
-
-    def resize_event(self, event):
-        pass
-        width_origin = self.original_base_image.width
-        height_origin = self.original_base_image.height
-        width_border = self.img_view.width()
-        height_border = self.img_view.height()
-        if width_border == 0 or height_border == 0:
-            return
-        if width_origin / height_origin > width_border / height_border:
-            print("宽度占满")
-            self.resize_transform = [width_border / width_origin, width_border / width_origin,
-                                     0, 0.5 * (height_border - width_border / width_origin * height_origin)]
-        else:
-            print("高度占满")
-            self.resize_transform = [height_border / height_origin, height_border / height_origin,
-                                     0.5 * (width_border - height_border / height_origin * width_origin), 0]
-        # 强制1:1
-        self.resize_image()
-        # super(pyqtgraph.widgets.RawImageWidget.RawImageWidget, self.img_view).resizeEvent(event)
-
-    def resize_image(self):
-        img = self.original_base_image.copy()
-        img = img.resize((
-            int(img.width * self.resize_transform[0]),
-            int(img.height * self.resize_transform[1]),
-        ),
-            resample=Image.BILINEAR)
-        img_empty = Image.new('RGBA',
-                              (self.img_view.width(), self.img_view.height()),
-                              (0, 0, 0, 0))
-        img_empty.paste(img, (int(self.resize_transform[2]), int(self.resize_transform[3])),
-                        mask=img.split()[-1])
-        img = img_empty
-        self.base_image = img.copy()
-        self.current_image = np.array(img).swapaxes(0, 1)[::-1, :, :] if is_left_hand else np.array(img).swapaxes(0, 1)
-        self.plot()
-
     def reset_image(self):
         self.processing_image = self.base_image.copy()
 
@@ -193,13 +147,11 @@ class HandPlotManager:
         # 计算边向量
         base_point = rect[0]
         x_delta = (rect[1][0] - rect[0][0], rect[1][1] - rect[0][1])
-        # y_rate = (rect[-1].shape[1] / rect[-1].shape[0]) ** -1
         y_rate = rect[-1].shape[1] / rect[-1].shape[0]
         y_delta = (-x_delta[1] * y_rate,
                    x_delta[0] * y_rate)
         if not rect[2]:
             y_delta = (-y_delta[0], -y_delta[1])
-
         center = (round(base_point[0] + 0.5 * x_delta[0] + 0.5 * y_delta[0]),
                   round(base_point[1] + 0.5 * x_delta[1] + 0.5 * y_delta[1]))
         angle = -np.arctan2(rect[1][1] - rect[0][1], rect[1][0] - rect[0][0])
@@ -214,23 +166,20 @@ class HandPlotManager:
             data = np.clip((data + self.log_y_lim[1]) / (self.log_y_lim[1] - self.log_y_lim[0]), 0., 1.)
             img_original = Image.fromarray((cmap.map(data.T, mode=float) * 255.).astype(np.uint8),
                                            mode='RGBA')
-            img_scaled = img_original.resize((int(new_shape[0] * self.resize_transform[0]),
-                                              int(new_shape[1] * self.resize_transform[1])),
-                                             resample=Image.BILINEAR)
+            img_scaled = img_original.resize(new_shape, resample=Image.BILINEAR)
             img_rotated = img_scaled.rotate(angle * 180 / np.pi, resample=Image.BILINEAR,
                                             expand=True, fillcolor=(0, 0, 0, 0))
             self.processing_image.paste(img_rotated,
-                                        (int(center[0] * self.resize_transform[0] - img_rotated.width // 2 + self.resize_transform[2]),
-                                         int(center[1] * self.resize_transform[1] - img_rotated.height // 2 + self.resize_transform[3])),
+                                        (center[0] - img_rotated.width // 2,
+                                         center[1] - img_rotated.height // 2),
                                         mask=img_rotated.split()[-1])
-            pass
 
         return projection_function
 
-    def __on_mouse_wheel(self, event: QWheelEvent):
+    def __on_mouse_wheel(self, event: QGraphicsSceneWheelEvent):
         if not config['fixed_range']:
             # 当鼠标滚轮滚动时，调整图像的显示范围
-            if event.angleDelta().y() > 0:
+            if event.delta() > 0:
                 if self.log_y_lim[1] < MAXIMUM_Y_LIM:
                     self.log_y_lim = (self.log_y_lim[0] + 0.1, self.log_y_lim[1] + 0.1)
             else:
@@ -258,8 +207,8 @@ class HandPlotManager:
             self.reset_image()
             for idx, data in data_fingers.items():
                 self.proj_funcs[idx](data)
-                max_value = np.max(data)
-                self.region_max[idx].append(np.log(np.maximum(max_value, 1e-6)) / np.log(10.))
+                mean_value = np.mean(data)
+                self.region_mean[idx].append(np.log(np.maximum(mean_value, 1e-6)) / np.log(10.))
             self.lock.release()
             self.time.append(time_now)
             self.processing_image.putalpha(self.base_image.split()[-1])
@@ -270,10 +219,12 @@ class HandPlotManager:
     def plot(self):
         if self.current_image is not None:
             self.lock.acquire()
-            self.img_view.setImage(self.current_image)
+            # self.img_view.setImage(self.current_image, autoRange=True)
+
+            self.img_view.setImage(self.current_image, levels=(0, 255))
             self.current_image = None
             for idx, line in self.lines.items():
-                line.setData(self.time, self.region_max[idx])
+                line.setData(self.time, self.region_mean[idx])
 
             self.lock.release()
 

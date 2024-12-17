@@ -8,7 +8,7 @@ class Interpolation:
 
     def __init__(self, interp, blur, sensor_shape):
         self.interp = interp
-        if blur > 8:
+        if blur > 16:
             raise Exception("过大的模糊参数")
         if blur > 0:
             kernel_size = np.ceil(blur * 2) * 2 + 1

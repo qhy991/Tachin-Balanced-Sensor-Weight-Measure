@@ -14,8 +14,10 @@ from usb.core import USBError
 import sys
 import traceback
 import numpy as np
-from data_handler.data_handler import DataHandler
-from large.sensor_driver import LargeSensorDriver
+from data.data_handler import DataHandler
+from large.sensor_driver import UsbSensorDriver
+from large.sensor_driver_reduced import LargeSensorDriverReduced
+from small.sensor_driver import SmallSensorDriver
 from server.socket_client import SocketClient
 #
 from config import config, save_config
@@ -29,12 +31,12 @@ LABEL_PRESSURE = 'p/kPa'
 LABEL_VALUE = 'Value'
 LABEL_RESISTANCE = 'Resistance/(kΩ)'
 Y_LIM_INITIAL = config['y_lim']
-DISPLAY_RANGE = [[0, 64], [0, 64]]
+
 MINIMUM_Y_LIM = 0.0
 MAXIMUM_Y_LIM = 5.0
 assert Y_LIM_INITIAL.__len__() == 2
-assert Y_LIM_INITIAL[0] >= MINIMUM_Y_LIM - 0.5
-assert Y_LIM_INITIAL[1] <= MAXIMUM_Y_LIM + 0.5
+assert Y_LIM_INITIAL[0] >= MINIMUM_Y_LIM - 0.2
+assert Y_LIM_INITIAL[1] <= MAXIMUM_Y_LIM + 0.2
 
 
 def log(v):
@@ -57,39 +59,50 @@ class Window(QtWidgets.QWidget, Ui_Form):
               [218, 57, 7],
               [122, 4, 3]]
 
-    def __init__(self, mode='direct', fixed_range=False):
+    def __init__(self, mode='standard', fixed_range=False):
         """
 
-        :param mode: "direct" or "socket"
+        :param mode: "standard" or "socket"
         """
         super().__init__()
         self.setupUi(self)
         # 重定向提示
         sys.excepthook = self.catch_exceptions
         #
-        if mode == 'direct':
-            self.data_handler = DataHandler(LargeSensorDriver)
-        elif mode == 'socket':
-            self.data_handler = DataHandler(SocketClient)
-        else:
-            raise NotImplementedError()
+        self._using_calibration = False
         self.fixed_range = fixed_range
         self.is_running = False
         #
         self.log_y_lim = Y_LIM_INITIAL
-        self._using_calibration = False
         self.line_maximum = self.create_a_line(self.fig_1)
         self.line_tracing = self.create_a_line(self.fig_2)
         self.plot = self.create_an_image(self.fig_image)
+        if mode == 'standard':
+            self.data_handler = DataHandler(UsbSensorDriver)
+            self.scaling = log
+            self.__set_using_calibration(False)
+        elif mode == 'socket':
+            self.data_handler = DataHandler(SocketClient)
+            self.scaling = log
+            self.__set_using_calibration(False)
+        elif mode == 'reduced':
+            self.data_handler = DataHandler(LargeSensorDriverReduced)
+            self.scaling = lambda x: x
+            self.__set_using_calibration(True)
+        elif mode == 'serial':
+            self.data_handler = DataHandler(SmallSensorDriver)
+            self.scaling = log
+            self.__set_using_calibration(False)
+        else:
+            raise NotImplementedError()
+
         self.pre_initialize()
-        #
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.trigger)
         self.last_trigger_time = -0.
         #
         self.time_last_image_update = np.uint32(0)
         # 是否处于使用标定状态
-        self.scaling = log
 
     def catch_exceptions(self, ty, value, tb):
         # 错误重定向为弹出对话框
@@ -156,7 +169,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         if flag:
             self.data_handler.set_tracing(xx, yy)
             if self.data_handler.value:
-                v_point = self.data_handler.value[-1][xx, yy] ** -1
+                v_point = self.data_handler.value[-1][xx, yy]
                 print(xx, yy, round(v_point, 1))
             else:
                 print(xx, yy)
@@ -217,7 +230,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 这里经常改
         # return [10 ** (-self.log_y_lim[1]), 10 ** (-self.log_y_lim[0])]
         if self._using_calibration:
-            return [0, 5.]
+            return [0., 256.]
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
@@ -237,7 +250,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         else:
             self._using_calibration = False
             for line in [self.line_maximum, self.line_tracing]:
-                ax = line.getViewBox()
+                ax = line.get_axis()
                 ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
                     [f'{10 ** (-_): .1f}' for _ in values]
             self.__apply_y_lim()
@@ -261,7 +274,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         else:
             self.button_save_to.setText("采集到...")
         if self.data_handler.driver.__class__.__name__ in \
-                ['FakeSensorDriver', 'SmallSensorDriver', 'SocketClient', 'LargeSensorDriver']:
+                ['FakeSensorDriver', 'SmallSensorDriver', 'SocketClient', 'UsbSensorDriver', 'LargeSensorDriverReduced']:
             self.com_port.setEnabled(not self.is_running)
         else:
             self.com_port.setEnabled(False)
@@ -307,8 +320,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_abandon_zero.clicked.connect(self.data_handler.abandon_zero)
         self.button_save_to.clicked.connect(self.__trigger_save_button)
         # 标定功能
-        self.button_load_calibration.clicked.connect(self.__set_calibrator)
-        self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
+        # self.button_load_calibration.clicked.connect(self.__set_calibrator)
+        # self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
 
     def __trigger_save_button(self):
         if self.data_handler.output_file:
@@ -329,22 +342,23 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.com_port.setText(config['port'])
 
     def __set_xy_range(self):
-        interp = self.data_handler.interpolation.interp
-        x_range = [DISPLAY_RANGE[0][0] * interp - 0.5, (DISPLAY_RANGE[0][1] - 1) * interp - 0.5]
-        y_range = [DISPLAY_RANGE[1][0] * interp - 0.5, (DISPLAY_RANGE[1][1] - 1) * interp - 0.5]
-        self.plot.getView().setRange(xRange=x_range,
-                                     yRange=y_range)
+        # interp = self.data_handler.interpolation.interp
+        # x_range = [DISPLAY_RANGE[0][0] * interp - 0.5, (DISPLAY_RANGE[0][1] - 1) * interp - 0.5]
+        # y_range = [DISPLAY_RANGE[1][0] * interp - 0.5, (DISPLAY_RANGE[1][1] - 1) * interp - 0.5]
+        # self.plot.getView().setRange(xRange=x_range,
+        #                              yRange=y_range)
+        pass
 
     def trigger(self):
         try:
             self.data_handler.trigger()
             time_now = time.time()
             if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
-                self.plot.setImage(log(np.array(self.data_handler.smoothed_value[-1].T)),
+                self.plot.setImage(self.scaling(np.array(self.data_handler.smoothed_value[-1].T)),
                                    levels=self.y_lim)
                 self.__set_xy_range()
-                self.line_maximum.setData(self.data_handler.time, log(self.data_handler.maximum))
-                self.line_tracing.setData(self.data_handler.t_tracing, log(self.data_handler.tracing))
+                self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.maximum))
+                self.line_tracing.setData(self.data_handler.t_tracing, self.scaling(self.data_handler.tracing))
             self.last_trigger_time = time_now
         except USBError:
             self.stop()
@@ -366,7 +380,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.exit()
 
 
-def start(mode='direct'):
+def start(mode='standard'):
     app = QtWidgets.QApplication(sys.argv)
     w = Window(mode)
     w.show()

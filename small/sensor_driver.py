@@ -9,20 +9,23 @@ import numpy as np
 import time
 import re
 import threading
+from collections import deque
+import config
 
-FOLDING_ROW = [0, 4, 2, 6, 1, 5, 3, 7]
-FOLDING_COL = [0, 1, 2, 3, 4, 5, 6, 7]
+config_serial = config.config_serial
 
-SIZE = 8
+FOLDING_ROW = config_serial['row_folding']
+FOLDING_COL = config_serial['col_folding']
 
 
 class SmallSensorDriver(AbstractSensorDriver):
 
     # 传感器个数
-    SENSOR_SHAPE = (8, 8)
+    SENSOR_SHAPE = (FOLDING_ROW.__len__(), FOLDING_COL.__len__())
     # 数据格式
     ZERO_LEN_MIN = 16
     DATA_TYPE = np.int16
+    SCALE = (4096. * 25. / 3.3) ** -1  # 示数对应到电阻倒数的系数
 
     def __init__(self):
         super(SmallSensorDriver, self).__init__()
@@ -30,12 +33,11 @@ class SmallSensorDriver(AbstractSensorDriver):
         self.file = None
         #
         self.__preparing_frame = np.zeros(self.SENSOR_SHAPE, dtype=self.DATA_TYPE)
-        self.__prepare_start_time = 0
+        self.__prepare_start_time = 0.
         self.__preparing_row_index = -1
         self.__aborted = False
         #
-        self.__finished_frame = np.zeros(self.SENSOR_SHAPE, dtype=self.DATA_TYPE)
-        self.__finish_time = 0
+        self.__finished_time_and_frame_deque = deque(maxlen=16)
         self.stored_message = ''
         #
         self.__working = False
@@ -45,11 +47,10 @@ class SmallSensorDriver(AbstractSensorDriver):
         return self.__working
 
     def connect(self, port):
-        self.__finish_time = 0
         if not self:
             if port.lower().startswith('com'):
                 try:
-                    self.ser = serial.Serial(port, 115200, timeout=0.)
+                    self.ser = serial.Serial(port, config_serial['baud_rate'], timeout=0.)
                     atexit.register(self.on_exit)
                     self.__working = True
                     return True
@@ -58,15 +59,7 @@ class SmallSensorDriver(AbstractSensorDriver):
                     print(e)
                     return False
             else:
-                try:
-                    self.file = np.loadtxt(port, delimiter=',', dtype=self.DATA_TYPE)\
-                        .reshape((-1, self.SENSOR_SHAPE[0], self.SENSOR_SHAPE[1]))
-                    atexit.register(self.on_exit)
-                    self.__working = True
-                    return True
-                except FileNotFoundError as e:
-                    warnings.warn(f'文件{port}不存在')
-                    return False
+                raise NotImplementedError("串口应当以COM开头")
         else:
             return False
 
@@ -94,8 +87,9 @@ class SmallSensorDriver(AbstractSensorDriver):
         while True:
             if self:
                 self.read()
+                # time.sleep(0.001)
             else:
-                time.sleep(0.001)
+                time.sleep(0.01)
                 # pass
 
     def read(self):
@@ -107,16 +101,22 @@ class SmallSensorDriver(AbstractSensorDriver):
                 return
             try:
                 self.stored_message += read.decode('utf-8')
-                self.stored_message = self.stored_message[-256:]
-            except UnicodeDecodeError:
+            except UnicodeDecodeError as e:
                 warnings.warn('未启动')
+                print(e)
                 return
             # 这里可以重点优化一下。用re匹配不优雅，不过目前没发现有什么问题
-            pattern = r'[\S\s]*(\d+)\svalue\s*=\s*(\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+)([\S\s]*)'
+            #pattern = r'[\S\s]*(\d+)\svalue\s*=\s*(\d+'
+            #pattern += r'\s+\d+' * self.SENSOR_SHAPE[1]
+            #pattern += r')(\\r\\n\ [\S\s]*)'
+            pattern = r'[\S\s]*\ (\d+)\svalue\s*=\s*(\d+'
+            pattern += r'\s+\d+' * 15
+            pattern += r')([\S\s]*)'
             # 等待行号
             flag = True
             while flag:
                 flag = False
+                # print(self.stored_message)
                 matched = re.match(pattern, self.stored_message)
                 if matched:
                     flag = True
@@ -143,25 +143,26 @@ class SmallSensorDriver(AbstractSensorDriver):
                             elif row_idx == self.SENSOR_SHAPE[0] - 1:
                                 self.__finish_frame()
                         else:
-                            warnings.warn("检测到行号不连续")
+                            warnings.warn(f"检测到行号不连续。{self.__preparing_row_index} -> {row_idx}")
+                            print(f"{self.stored_message}")
                             self.__abort_frame()
-        elif self.file is not None:
-            row = self.file[0, :, :]
-            print(row)
-            self.file[...] = np.roll(self.file, -1, axis=0)
-            self.__finished_frame[...] = row
-            self.__finish_time = time.time()
-            time.sleep(0.005)
+        # elif self.file is not None:
+        #     row = self.file[0, :, :]
+        #     print(row)
+        #     self.file[...] = np.roll(self.file, -1, axis=0)
+        #     self.__finished_frame[...] = row
+        #     self.__finish_time = time.time()
+        #     time.sleep(0.005)
         else:
             raise Exception('无效接口')
 
     def __finish_frame(self):
-        self.__finished_frame[...] = self.__preparing_frame
-        if self.__finish_time > 0:
-            print(f'时间：{self.__prepare_start_time - self.__finish_time}')
-        self.__finish_time = self.__prepare_start_time
+        finished_frame = self.__preparing_frame.copy()
+        finish_time = self.__prepare_start_time
+        self.__finished_time_and_frame_deque.append((finish_time, finished_frame))
         self.__preparing_frame[...] = 0
         self.__preparing_row_index = -1
+        print(f"Finished: {finish_time}, {finished_frame}")
 
     def __abort_frame(self):
         self.__aborted = True
@@ -169,5 +170,10 @@ class SmallSensorDriver(AbstractSensorDriver):
         self.__preparing_row_index = -1
 
     def get(self):
-        return self.__finished_frame[FOLDING_ROW, :][:, FOLDING_COL].copy(), self.__finish_time
+        if self.__finished_time_and_frame_deque:
+            t, d = self.__finished_time_and_frame_deque.popleft()
+            d = d[FOLDING_ROW, :][:, FOLDING_COL]
+            return d, t
+        else:
+            return None, None
 

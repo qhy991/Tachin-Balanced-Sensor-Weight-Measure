@@ -139,20 +139,7 @@
    <item row="1" column="0">
     <layout class="QHBoxLayout" name="horizontalLayout_3" stretch="3,2">
      <item>
-      <widget class="GraphicsLayoutWidget" name="fig_image">
-       <property name="sizePolicy">
-        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-         <horstretch>0</horstretch>
-         <verstretch>0</verstretch>
-        </sizepolicy>
-       </property>
-       <property name="font">
-        <font>
-         <family>SimSun-ExtB</family>
-         <pointsize>16</pointsize>
-        </font>
-       </property>
-      </widget>
+      <widget class="RawImageWidget" name="fig_image" native="true"/>
      </item>
      <item>
       <widget class="GraphicsLayoutWidget" name="fig_lines">
@@ -230,9 +217,13 @@
    <extends>QGraphicsView</extends>
    <header location="global">pyqtgraph</header>
   </customwidget>
+  <customwidget>
+   <class>RawImageWidget</class>
+   <extends>QWidget</extends>
+   <header location="global">pyqtgraph.widgets.RawImageWidget</header>
+   <container>1</container>
+  </customwidget>
  </customwidgets>
- <resources>
-  <include location="../resources/resources.qrc"/>
- </resources>
+ <resources/>
  <connections/>
 </ui>

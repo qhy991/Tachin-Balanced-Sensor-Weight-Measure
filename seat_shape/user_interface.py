@@ -18,11 +18,11 @@ from usb.core import USBError
 import sys
 import traceback
 import numpy as np
-from data_handler.data_handler_multiple import DataHandler
-from large.sensor_driver import LargeSensorDriver
+from data.data_handler_multiple import DataHandler
+from large.sensor_driver import UsbSensorDriver
 #
 from config import config, save_config, config_multiple
-from data_handler.convert_data import ReplayDataSource
+from data.convert_data import ReplayDataSource
 
 #
 STANDARD_PEN = pyqtgraph.mkPen('k')
@@ -70,7 +70,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 重定向提示
         sys.excepthook = self.catch_exceptions
         #
-        self.data_handler = DataHandler(LargeSensorDriver, ports=config_multiple['ports'], max_len=64)
+        self.data_handler = DataHandler(UsbSensorDriver, ports=config_multiple['ports'], max_len=64)
         self.fixed_range = fixed_range
         self.is_running = False
         #

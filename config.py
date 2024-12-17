@@ -30,7 +30,8 @@ except FileNotFoundError:
 
 try:
     config_multiple = json.load(
-        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'seat_shape/config_seat.json'), 'rt', encoding='utf-8'))
+        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'seat_shape/config_seat.json'), 'rt',
+             encoding='utf-8'))
 except FileNotFoundError:
     config_multiple = None
 
@@ -41,6 +42,21 @@ try:
 except FileNotFoundError:
     config_void_list = None
 
+try:
+    config_serial = json.load(
+        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'small/config_serial.json'), 'rt',
+             encoding='utf-8'))
+except FileNotFoundError:
+    config_serial = None
+
 
 def save_config():
-    json.dump(config, open(config_path, 'wt'))
+    try:
+        json.dump(config, open(config_path, 'wt'))
+    except PermissionError:
+        print('无法保存配置文件')
+        pass
+    except Exception:
+        print('未知错误')
+        pass
+

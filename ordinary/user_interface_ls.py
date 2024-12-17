@@ -13,7 +13,7 @@ from usb.core import USBError
 import sys
 import traceback
 import numpy as np
-from data_handler.data_handler_ls import DataHandler
+from data.data_handler_ls import DataHandler
 #
 from config import config, save_config
 

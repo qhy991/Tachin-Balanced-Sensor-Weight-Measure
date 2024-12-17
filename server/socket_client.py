@@ -2,7 +2,7 @@
 import socket
 import numpy as np
 import time
-from data_handler.data_handler import VALUE_DTYPE
+from data.data_handler import VALUE_DTYPE
 from abstract_sensor_driver import AbstractSensorDriver
 import atexit
 from server.utils import crc, CommandCodes

@@ -243,8 +243,8 @@ class DataHandler:
 
 
 if __name__ == "__main__":
-    from large.sensor_driver import LargeSensorDriver
-    dh = DataHandler(LargeSensorDriver, [0, 3])
+    from large.sensor_driver import UsbSensorDriver
+    dh = DataHandler(UsbSensorDriver, [0, 3])
     dh.connect()
     while True:
         dh.trigger()

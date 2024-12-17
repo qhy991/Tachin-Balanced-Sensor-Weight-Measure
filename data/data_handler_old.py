@@ -30,27 +30,28 @@ class DataHandler:
         self.max_len = max_len
         self.driver = template_sensor_driver()  # 传感器驱动
         # 滤波器
-        self.filter_basic_median = preprocessing.Filter(template_sensor_driver)
-        self.filter_time = preprocessing.Filter(template_sensor_driver)  # 当前的时间滤波
-        self.filter_frame = preprocessing.Filter(template_sensor_driver)  # 当前的空间滤波
+        self.filter_basic_median = preprocessing.Filter(template_sensor_driver)  # 缺省中值滤波。未启用
+        self.filter_time = preprocessing.Filter(template_sensor_driver)  # 当前的时间滤波。可被设置
+        self.filter_frame = preprocessing.Filter(template_sensor_driver)  # 当前的空间滤波。可被设置
         self.preset_filters = preprocessing.build_preset_filters(template_sensor_driver)  # 下拉菜单里可设置的滤波器
-        self.interpolation = Interpolation(1, 0., template_sensor_driver.SENSOR_SHAPE)  # 插值
+        self.interpolation = Interpolation(1, 0., template_sensor_driver.SENSOR_SHAPE)  # 插值。可被设置
         #
         self.single_mode = not (template_sensor_driver.__name__ == 'TactileDriverWithPreprocessing')  # 整片模式
-        self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 是否处于标定模式
+        # 分片模式下，数据的处理方式会有区别
+        self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 标定器
         # 数据容器
         self.begin_time = None
-        self.data = deque(maxlen=self.max_len)
-        self.value = deque(maxlen=self.max_len)
-        self.smoothed_value = deque(maxlen=self.max_len)
-        self.time = deque(maxlen=self.max_len)
-        self.time_ms = deque(maxlen=self.max_len)
-        self.zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)
-        self.value_mid = deque(maxlen=self.max_len)
-        self.maximum = deque(maxlen=self.max_len)
-        self.tracing = deque(maxlen=self.max_len)
-        self.t_tracing = deque(maxlen=self.max_len)
-        self.tracing_point = (0, 0)
+        self.data = deque(maxlen=self.max_len)  # 直接从SensorDriver获得的数据
+        self.value = deque(maxlen=self.max_len)  # 经过所有处理，但未通过interpolation，也未做对数尺度变换。对自研卡，未开启标定时，是电阻(kΩ)的倒数
+        self.smoothed_value = deque(maxlen=self.max_len)  # 与value相同，但经过interpolation
+        self.time = deque(maxlen=self.max_len)  # 从connect后首个采集点开始到现在的时间
+        self.time_ms = deque(maxlen=self.max_len)  # ms上的整型。通讯专用
+        self.zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)  # 零点
+        self.value_mid = deque(maxlen=self.max_len)  # 中值
+        self.maximum = deque(maxlen=self.max_len)  # 峰值
+        self.tracing = deque(maxlen=self.max_len)  # 追踪点
+        self.t_tracing = deque(maxlen=self.max_len)  # 追踪点的时间。由于更新追踪点时会清空，故单独记录
+        self.tracing_point = (0, 0)  # 当前的追踪点
         self.lock = threading.Lock()
         # 保存
         self.output_file = None
@@ -58,12 +59,9 @@ class DataHandler:
         self.path_db = None
         # 退出时断开
         atexit.register(self.disconnect)
-        try:
-            shutil.rmtree('./record_data.csv')
-        except:
-            pass
 
-    # 保存机能
+    # 保存功能
+    # 待优化：目前每行所有数存成json。很不优雅
 
     def link_output_file(self, path):
         # 采集到文件时，打开文件
@@ -109,7 +107,7 @@ class DataHandler:
             convert_db_to_csv(self.path_db)
             self.path_db = None
 
-    # 保存机能结束
+    # 保存功能结束
 
     def clear(self):
         self.lock.acquire()
@@ -216,7 +214,7 @@ class DataHandler:
         assert interpolate == int(interpolate)
         assert 1 <= interpolate <= 8
         assert blur == float(blur)
-        assert 0. <= blur <= 2.
+        assert 0. <= blur <= 4.
         self.interpolation = Interpolation(interpolate, blur, self.driver.SENSOR_SHAPE)
         pass
 

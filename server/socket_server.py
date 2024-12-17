@@ -1,19 +1,19 @@
-from data_handler.data_handler import DataHandler
+from data.data_handler import DataHandler
 import socket
 from threading import Thread
 import atexit
 import time
 from server.utils import crc, CommandCodes, wait
 import warnings
-from large.sensor_driver import LargeSensorDriver
+from large.sensor_driver import UsbSensorDriver
 
 QUERY_SUCCESS_LENGTH = 1 + 2 + 2 * 4096
 QUERY_FAIL_LENGTH = 1
 
 
 class SocketServer:
-    def __init__(self, device_number, max_len=4, port_start=10080, max_client_count=16, client_timeout=60):
-        self.data_handler = DataHandler(max_len=max_len, template_sensor_driver=LargeSensorDriver)
+    def __init__(self, device_number, max_len=16, port_start=10080, max_client_count=16, client_timeout=60):
+        self.data_handler = DataHandler(max_len=max_len, template_sensor_driver=UsbSensorDriver)
         self.device_number = device_number
         self.port_start = port_start
         self.max_client_count = max_client_count
@@ -78,11 +78,8 @@ class SocketServer:
                                              0x01])\
                                       + time_after_begin.tobytes() + bytes(value)
                             message += bytes([crc(message)])
-                            # print(f"数据时间：{time_after_begin + self.data_handler.begin_time}")
-                            # print(f"发送时间：{time.time()}")
                             client.sendall(message)
                         else:
-                            # print(f"发送时间：{time.time()}")
                             message = [0xaa, 0x55, client_id, CommandCodes.LATEST_FRAME,
                                        *QUERY_FAIL_LENGTH.to_bytes(2, 'big'), 0x00]
                             client.sendall(bytes(message + [crc(message)]))

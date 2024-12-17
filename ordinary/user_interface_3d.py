@@ -5,20 +5,45 @@
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
-from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
 import time
-from ordinary.layout.layout import Ui_Form
+from ordinary.layout.layout_3d import Ui_Form
 import pyqtgraph
+import pyqtgraph.opengl as gl
 #
 from usb.core import USBError
 import sys
 import traceback
 import numpy as np
-from data_handler.data_handler import DataHandler
-from large.sensor_driver import LargeSensorDriver
+from data.data_handler import DataHandler
+from large.sensor_driver import UsbSensorDriver
 from server.socket_client import SocketClient
 #
 from config import config, save_config
+from scipy.interpolate import interp1d
+
+
+def create_color_map(data):
+    # Normalize data to range [0, 1]
+
+    # Create a colormap using NumPy
+    colors = np.array([
+        [15, 15, 15],
+        [48, 18, 59],
+        [71, 118, 238],
+        [27, 208, 213],
+        [97, 252, 108],
+        [210, 233, 53],
+        [254, 155, 45],
+        [218, 57, 7],
+        [122, 4, 3]
+    ]) / 255.0
+    # Interpolate colors
+    # indices = (data * (colors.shape[0] - 1)).astype(int)
+    # 改成插值
+    interps = [interp1d(np.linspace(0., 1., colors.shape[0]), colors[:, j], axis=0, bounds_error=False)
+               for j in range(3)]
+    return np.stack([interp(data) for interp in interps], axis=-1)
+
 
 #
 STANDARD_PEN = pyqtgraph.mkPen('k')
@@ -29,7 +54,7 @@ LABEL_PRESSURE = 'p/kPa'
 LABEL_VALUE = 'Value'
 LABEL_RESISTANCE = 'Resistance/(kΩ)'
 Y_LIM_INITIAL = config['y_lim']
-DISPLAY_RANGE = [[0, 64], [0, 64]]
+DISPLAY_RANGE = [[24, 40], [24, 40]]
 MINIMUM_Y_LIM = 0.0
 MAXIMUM_Y_LIM = 5.0
 assert Y_LIM_INITIAL.__len__() == 2
@@ -68,19 +93,24 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self.catch_exceptions
         #
         if mode == 'direct':
-            self.data_handler = DataHandler(LargeSensorDriver)
+            self.data_handler = DataHandler(UsbSensorDriver)
         elif mode == 'socket':
             self.data_handler = DataHandler(SocketClient)
         else:
             raise NotImplementedError()
         self.fixed_range = fixed_range
         self.is_running = False
-        #
+        # 绘图用固定坐标
+        # xx = np.arange(self.data_handler.driver.SENSOR_SHAPE[0] * self.data_handler.interpolation.interp)
+        xx = np.arange((DISPLAY_RANGE[0][1] - DISPLAY_RANGE[0][0]) * self.data_handler.interpolation.interp)
+        xx = xx / xx.shape[0] - 0.5
+        # yy = np.arange(self.data_handler.driver.SENSOR_SHAPE[1] * self.data_handler.interpolation.interp)
+        yy = np.arange((DISPLAY_RANGE[1][1] - DISPLAY_RANGE[1][0]) * self.data_handler.interpolation.interp)
+        yy = yy / yy.shape[0] - 0.5
+        self.xx, self.yy = xx, yy
         self.log_y_lim = Y_LIM_INITIAL
         self._using_calibration = False
-        self.line_maximum = self.create_a_line(self.fig_1)
-        self.line_tracing = self.create_a_line(self.fig_2)
-        self.plot = self.create_an_image(self.fig_image)
+        self.plot = self.create_3d_plot(self.fig_image)
         self.pre_initialize()
         #
         self.timer = QtCore.QTimer()
@@ -90,7 +120,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.time_last_image_update = np.uint32(0)
         # 是否处于使用标定状态
         self.scaling = log
-
+        # 绘图用
     def catch_exceptions(self, ty, value, tb):
         # 错误重定向为弹出对话框
         traceback_format = traceback.format_exception(ty, value, tb)
@@ -134,62 +164,21 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.initialize_others()
         self.set_enable_state()
         self.__apply_y_lim()
-        #
 
-    def __clicked_on_image(self, event: MouseClickEvent):
-        # 图上选点
-        size = [self.plot.width(), self.plot.height()]
-        vb = self.plot.getView()
-        vb_state = vb.state['viewRange']
-        pix_offset = [-size[j] / (vb_state[j][1] - vb_state[j][0]) * vb_state[j][0] for j in range(2)]
-        pix_unit = [size[j] / (vb_state[j][1] - vb_state[j][0]) for j in range(2)]
-        x = (event.pos().x() - pix_offset[0]) / pix_unit[0]
-        y = (event.pos().y() - pix_offset[1]) / pix_unit[1]
-        xx = int(y / self.data_handler.interpolation.interp)
-        yy = int(x / self.data_handler.interpolation.interp)
-
-        if not vb.state['yInverted']:
-            xx = self.data_handler.driver.SENSOR_SHAPE[0] - xx - 1
-        if vb.state['xInverted']:
-            yy = self.data_handler.driver.SENSOR_SHAPE[1] - yy - 1
-        flag = 0 <= xx < self.data_handler.driver.SENSOR_SHAPE[0] and 0 <= yy < self.data_handler.driver.SENSOR_SHAPE[1]
-        if flag:
-            self.data_handler.set_tracing(xx, yy)
-            if self.data_handler.value:
-                v_point = self.data_handler.value[-1][xx, yy] ** -1
-                print(xx, yy, round(v_point, 1))
-            else:
-                print(xx, yy)
-
-    def __on_mouse_wheel(self, event: QGraphicsSceneWheelEvent):
-        if not self.fixed_range:
-            # 当鼠标滚轮滚动时，调整图像的显示范围
-            if event.delta() > 0:
-                if self.log_y_lim[1] < MAXIMUM_Y_LIM:
-                    self.log_y_lim = (self.log_y_lim[0] + 0.1, self.log_y_lim[1] + 0.1)
-            else:
-                if self.log_y_lim[0] > MINIMUM_Y_LIM:
-                    self.log_y_lim = (self.log_y_lim[0] - 0.1, self.log_y_lim[1] - 0.1)
-            self.log_y_lim = (round(self.log_y_lim[0], 1), round(self.log_y_lim[1], 1))
-            self.__apply_y_lim()
-            pass
+    def create_3d_plot(self, fig_widget: QtWidgets.QWidget):
+        self.view = gl.GLViewWidget()
+        self.view.setCameraPosition(pos=QtGui.QVector3D(0.64, 0.77, 0.5), distance=0.3, elevation=30, azimuth=50)
+        self.grid = gl.GLGridItem()
+        self.view.addItem(self.grid)
+        layout = QtWidgets.QGridLayout()
+        layout.addWidget(self.view, 0, 0)
+        fig_widget.setLayout(layout)
+        return self.view
 
     def initialize_image(self):
-        self.plot.ui.histogram.hide()
-        self.plot.ui.menuBtn.hide()
-        self.plot.ui.roiBtn.hide()
-        #
-        colors = self.COLORS
-        pos = (0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1)
-        cmap = pyqtgraph.ColorMap(pos=[_ for _ in pos], color=colors)
-        self.plot.setColorMap(cmap)
-        vb: pyqtgraph.ViewBox = self.plot.getImageItem().getViewBox()
-        vb.setMouseEnabled(x=False, y=False)
-        vb.setBackgroundColor(pyqtgraph.mkColor(0.95))
-        self.plot.getImageItem().scene().sigMouseClicked.connect(self.__clicked_on_image)
-        self.plot.getImageItem().wheelEvent = self.__on_mouse_wheel
-        # 设置范围
-        self.__set_xy_range()
+        self.view.clear()
+        self.grid = gl.GLGridItem()
+        self.view.addItem(self.grid)
 
     def create_a_line(self, fig_widget: pyqtgraph.GraphicsLayoutWidget):
         ax: pyqtgraph.PlotItem = fig_widget.addPlot()
@@ -222,9 +211,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
     def __apply_y_lim(self):
-        for line in [self.line_maximum, self.line_tracing]:
-            line.getViewBox().setYRange(*self.y_lim)
-            pass
+        # for line in [self.line_maximum, self.line_tracing]:
+        #     line.getViewBox().setYRange(*self.y_lim)
+        #     pass
+        pass
 
     def __set_using_calibration(self, b):
         if b:
@@ -268,16 +258,16 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.com_port.setText("-")
 
     def __set_filter(self):
-        self.data_handler.set_filter("无", self.combo_filter_time.currentText())
-        config['filter_time_index'] = self.combo_filter_time.currentIndex()
+        # self.data_handler.set_filter("无", self.combo_filter_time.currentText())
+        # config['filter_time_index'] = self.combo_filter_time.currentIndex()
         self.dump_config()
 
     def __set_interpolate_and_blur(self):
-        interpolate = int(self.combo_interpolate.currentText())
-        blur = float(self.combo_blur.currentText())
-        self.data_handler.set_interpolation_and_blur(interpolate=interpolate, blur=blur)
-        config['interpolate_index'] = self.combo_interpolate.currentIndex()
-        config['blur_index'] = self.combo_blur.currentIndex()
+        # interpolate = int(self.combo_interpolate.currentText())
+        # blur = float(self.combo_blur.currentText())
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=2)
+        # config['interpolate_index'] = self.combo_interpolate.currentIndex()
+        # config['blur_index'] = self.combo_blur.currentIndex()
         self.dump_config()
 
     def __set_calibrator(self):
@@ -294,21 +284,21 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def initialize_buttons(self):
         self.button_start.clicked.connect(self.start)
         self.button_stop.clicked.connect(self.stop)
-        self.combo_filter_time.setCurrentIndex(config.get('filter_time_index'))
-        self.combo_interpolate.setCurrentIndex(config.get('interpolate_index'))
-        self.combo_blur.setCurrentIndex(config.get('blur_index'))
+        # self.combo_filter_time.setCurrentIndex(config.get('filter_time_index'))
+        # self.combo_interpolate.setCurrentIndex(config.get('interpolate_index'))
+        # self.combo_blur.setCurrentIndex(config.get('blur_index'))
         self.__set_filter()
         self.__set_interpolate_and_blur()
-        self.combo_filter_time.currentIndexChanged.connect(self.__set_filter)
-        self.combo_interpolate.currentIndexChanged.connect(self.__set_interpolate_and_blur)
-        self.combo_blur.currentIndexChanged.connect(self.__set_interpolate_and_blur)
+        # self.combo_filter_time.currentIndexChanged.connect(self.__set_filter)
+        # self.combo_interpolate.currentIndexChanged.connect(self.__set_interpolate_and_blur)
+        # self.combo_blur.currentIndexChanged.connect(self.__set_interpolate_and_blur)
         self.set_enable_state()
         self.button_set_zero.clicked.connect(self.data_handler.set_zero)
         self.button_abandon_zero.clicked.connect(self.data_handler.abandon_zero)
         self.button_save_to.clicked.connect(self.__trigger_save_button)
         # 标定功能
-        self.button_load_calibration.clicked.connect(self.__set_calibrator)
-        self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
+        # self.button_load_calibration.clicked.connect(self.__set_calibrator)
+        # self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
 
     def __trigger_save_button(self):
         if self.data_handler.output_file:
@@ -335,16 +325,30 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.plot.getView().setRange(xRange=x_range,
                                      yRange=y_range)
 
+    MESH_PLOT_STYLE = {
+        'shader': 'shaded',
+                       'glOptions': 'additive',
+                        'smooth': True,
+        'drawEdges': True,
+        'edgeColor': (1, 1, 1, 0.01),
+                       }
+    # 设置上色、光源
+
     def trigger(self):
         try:
             self.data_handler.trigger()
             time_now = time.time()
             if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
-                self.plot.setImage(log(np.array(self.data_handler.smoothed_value[-1].T)),
-                                   levels=self.y_lim)
-                self.__set_xy_range()
-                self.line_maximum.setData(self.data_handler.time, log(self.data_handler.maximum))
-                self.line_tracing.setData(self.data_handler.t_tracing, log(self.data_handler.tracing))
+                self.view.clear()
+
+                Z = log(np.array(self.data_handler.smoothed_value[-1]))
+                Z = Z[DISPLAY_RANGE[0][0] : DISPLAY_RANGE[0][1], DISPLAY_RANGE[1][0] : DISPLAY_RANGE[1][1]]
+                Z = (np.clip(Z, min(self.y_lim), max(self.y_lim)) - min(self.y_lim)) / (max(self.y_lim) - min(self.y_lim))
+                colors = create_color_map(Z)
+                self.surface = gl.GLSurfacePlotItem(x=-self.xx, y=self.yy, z=Z * 0.05, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
+                # self.surface = gl.GLSurfacePlotItem(x=X, y=Y, z=Z * 0.1, **self.MESH_PLOT_STYLE)
+
+                self.view.addItem(self.surface)
             self.last_trigger_time = time_now
         except USBError:
             self.stop()
@@ -354,11 +358,12 @@ class Window(QtWidgets.QWidget, Ui_Form):
             raise e
 
     def trigger_null(self):
-        self.plot.setImage(np.zeros(
-            [_ * self.data_handler.interpolation.interp for _ in self.data_handler.driver.SENSOR_SHAPE]).T
-                           - MAXIMUM_Y_LIM,
-                           levels=self.y_lim)
-        self.__set_xy_range()
+        self.view.clear()
+        Z = np.zeros([int(_ * self.data_handler.interpolation.interp) for _ in self.data_handler.driver.SENSOR_SHAPE])
+        Z = Z[DISPLAY_RANGE[0][0]: DISPLAY_RANGE[0][1], DISPLAY_RANGE[1][0]: DISPLAY_RANGE[1][1]]
+        colors = create_color_map(Z)
+        self.surface = gl.GLSurfacePlotItem(x=-self.xx, y=self.yy, z=Z * 0.1, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
+        self.view.addItem(self.surface)
 
     def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
         self.stop()

@@ -21,7 +21,7 @@ import os
 import traceback
 import numpy as np
 from data_handler.data_handler_multiple import DataHandler
-from large.sensor_driver import LargeSensorDriver
+from large.sensor_driver import UsbSensorDriver
 #
 from PIL import Image
 from config import config, save_config, config_multiple
@@ -189,7 +189,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 重定向提示
         sys.excepthook = self.catch_exceptions
         #
-        self.data_handler = DataHandler(LargeSensorDriver, ports=config_multiple['ports'], max_len=64)
+        self.data_handler = DataHandler(UsbSensorDriver, ports=config_multiple['ports'], max_len=64)
         self.fixed_range = fixed_range
         self.is_running = False
         #

@@ -11,7 +11,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Form(object):
     def setupUi(self, Form):
         Form.setObjectName("Form")
-        Form.resize(1239, 580)
+        Form.resize(1190, 580)
         self.gridLayout = QtWidgets.QGridLayout(Form)
         self.gridLayout.setObjectName("gridLayout")
         self.horizontalLayout = QtWidgets.QHBoxLayout()
@@ -36,6 +36,11 @@ class Ui_Form(object):
         self.label_2.setObjectName("label_2")
         self.horizontalLayout.addWidget(self.label_2)
         self.com_port = QtWidgets.QLineEdit(Form)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.com_port.sizePolicy().hasHeightForWidth())
+        self.com_port.setSizePolicy(sizePolicy)
         self.com_port.setAlignment(QtCore.Qt.AlignCenter)
         self.com_port.setObjectName("com_port")
         self.horizontalLayout.addWidget(self.com_port)
@@ -65,16 +70,7 @@ class Ui_Form(object):
         self.gridLayout.addLayout(self.horizontalLayout, 0, 0, 1, 1)
         self.horizontalLayout_3 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_3.setObjectName("horizontalLayout_3")
-        self.fig_image = GraphicsLayoutWidget(Form)
-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.fig_image.sizePolicy().hasHeightForWidth())
-        self.fig_image.setSizePolicy(sizePolicy)
-        font = QtGui.QFont()
-        font.setFamily("SimSun-ExtB")
-        font.setPointSize(16)
-        self.fig_image.setFont(font)
+        self.fig_image = RawImageWidget(Form)
         self.fig_image.setObjectName("fig_image")
         self.horizontalLayout_3.addWidget(self.fig_image)
         self.fig_lines = GraphicsLayoutWidget(Form)
@@ -131,4 +127,4 @@ class Ui_Form(object):
         self.label_fixed.setText(_translate("Form", "手掌电子皮肤显示程序V1.3  途见科技（北京）有限公司"))
 
 from pyqtgraph import GraphicsLayoutWidget
-from hand_shape.resources import resources_rc
+from pyqtgraph.widgets.RawImageWidget import RawImageWidget

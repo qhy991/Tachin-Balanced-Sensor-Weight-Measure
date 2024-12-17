@@ -1,4 +1,4 @@
-from large.sensor_driver import LargeSensorDriver as SensorDriver
+from large.sensor_driver import UsbSensorDriver as SensorDriver
 import copy
 
 import numpy as np
@@ -74,7 +74,9 @@ class SplitDataDict:
             x_invert = info[1]
             y_invert = info[2]
             xy_swap = info[3]
-            data_this = self.full_data[slicing]
+            scale = info[4]
+            power = info[5]
+            data_this = ((np.maximum(self.full_data[slicing], 0.)) ** power) * scale
 
             if x_invert:
                 data_this = data_this[::-1, :]
@@ -96,6 +98,8 @@ class SplitDataDict:
             x_invert = info[1]
             y_invert = info[2]
             xy_swap = info[3]
+            scale = info[4]
+            power = info[5]
 
             if xy_swap:
                 data_this = data_this.T
@@ -104,7 +108,7 @@ class SplitDataDict:
             if y_invert:
                 data_this = data_this[:, ::-1]
 
-            self.full_data[slicing] = data_this
+            self.full_data[slicing] = (data_this ** (power ** -1)) / scale
 
         else:
             raise KeyError(str(idx))
@@ -155,7 +159,9 @@ class TactileDriverWithPreprocessing(SensorDriver):
     RANGE_MAPPING = {int(k):
                      [(slice(v[0], v[0] + v[5]),
                        slice(v[1], v[1] + v[6])),
-                      bool(v[2]), bool(v[3]), bool(v[4])]
+                      bool(v[2]), bool(v[3]), bool(v[4]),
+                      float(v[7]),
+                      float(v[8])]
                      for k, v in config_mapping['range_mapping'].items()}
 
     def __init__(self):
