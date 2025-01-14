@@ -4,4 +4,6 @@ copy config.json dist\interface_large_sensor\_internal\config.json
 copy config_array.json dist\interface_large_sensor\_internal\config_array.json
 mkdir dist\interface_large_sensor\ordinary\layout
 copy ordinary\layout\tujian.ico dist\interface_large_sensor\\ordinary\layout\tujian.ico
+mkdir dist\interface_large_sensor\ordinary\resources
+copy ordinary\resources\logo.png dist\interface_large_sensor\ordinary\resources\logo.png
 pause

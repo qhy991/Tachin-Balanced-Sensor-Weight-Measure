@@ -2,12 +2,17 @@
 显示界面，适用于large采集卡
 顺便可以给small采集卡使用
 """
+# LAN = 'chs'
+LAN = 'en'
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
 import time
-from ordinary.layout.layout import Ui_Form
+if LAN == 'en':
+    from ordinary.layout.layout_en import Ui_Form
+else:
+    from ordinary.layout.layout import Ui_Form
 import pyqtgraph
 #
 from usb.core import USBError
@@ -15,10 +20,10 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from large.sensor_driver import LargeSensorDriver
-from large.sensor_driver import SensorDriver16
-from large.sensor_driver_reduced import LargeSensorDriverReduced
-from small.sensor_driver import SmallSensorDriver
+from usb_driver.sensor_driver import LargeSensorDriver
+from usb_driver.sensor_driver import SensorDriver16
+from usb_driver.sensor_driver_reduced import LargeSensorDriverReduced
+from serial_driver.sensor_driver import SerialSensorDriver16
 # from server.socket_client import SocketClient
 #
 from config import config, save_config
@@ -95,7 +100,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.scaling = lambda x: x
             self.__set_using_calibration(True)
         elif mode == 'serial':
-            self.data_handler = DataHandler(SmallSensorDriver)
+            self.data_handler = DataHandler(SerialSensorDriver16)
             self.scaling = log
             self.__set_using_calibration(False)
         else:
@@ -114,7 +119,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         traceback_format = traceback.format_exception(ty, value, tb)
         traceback_string = "".join(traceback_format)
         print(traceback_string)
-        QtWidgets.QMessageBox.critical(self, "错误", "{}".format(value))
+        QtWidgets.QMessageBox.critical(self, ("Error" if LAN == 'en' else "错误"), "{}".format(value))
         # self.old_hook(ty, value, tb)
 
     def dump_config(self):
@@ -145,14 +150,19 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.set_enable_state()
 
     def pre_initialize(self):
-        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow", "电子皮肤采集程序"))
+        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
+                                                              "E-skin Display" if LAN == 'en' else "电子皮肤采集程序"))
         self.setWindowIcon(QtGui.QIcon("./ordinary/layout/tujian.ico"))
+        logo_path = "./ordinary/resources/logo.png"
+        self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
+        self.label_logo.setScaledContents(True)
         self.initialize_image()
         self.initialize_buttons()
         self.initialize_others()
         self.set_enable_state()
         self.__apply_y_lim()
         #
+        self.com_port.setEnabled(True)  # 一旦成功开始，就再也不能修改
 
     def __clicked_on_image(self, event: MouseClickEvent):
         # 图上选点
@@ -173,11 +183,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         flag = 0 <= xx < self.data_handler.driver.SENSOR_SHAPE[0] and 0 <= yy < self.data_handler.driver.SENSOR_SHAPE[1]
         if flag:
             self.data_handler.set_tracing(xx, yy)
-            if self.data_handler.value:
-                v_point = self.data_handler.value[-1][xx, yy]
-                print(xx, yy, round(v_point, 1))
-            else:
-                print(xx, yy)
+            print(xx, yy)
 
     def __on_mouse_wheel(self, event: QGraphicsSceneWheelEvent):
         if not self.fixed_range:
@@ -278,15 +284,11 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_stop.setEnabled(self.is_running)
         self.button_save_to.setEnabled(self.is_running)
         if self.data_handler.output_file:
-            self.button_save_to.setText("结束采集")
+            self.button_save_to.setText("End acquisition" if LAN == "en" else "结束采集")
         else:
-            self.button_save_to.setText("采集到...")
-        if self.data_handler.driver.__class__.__name__ in \
-                ['FakeSensorDriver', 'SmallSensorDriver', 'SocketClient', 'UsbSensorDriver', 'LargeSensorDriver', 'SensorDriver16']:
-            self.com_port.setEnabled(not self.is_running)
-        else:
+            self.button_save_to.setText("Acquire to file..." if LAN == "en" else "采集到...")
+        if self.is_running:
             self.com_port.setEnabled(False)
-            self.com_port.setText("-")
 
     def __apply_swap(self, data):
         if config['xy_swap']:
@@ -295,7 +297,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             return data
 
     def __set_filter(self):
-        self.data_handler.set_filter("无", self.combo_filter_time.currentText())
+        self.data_handler.set_filter("None" if LAN == "en" else "无", self.combo_filter_time.currentText())
         config['filter_time_index'] = self.combo_filter_time.currentIndex()
         self.dump_config()
 
@@ -340,19 +342,20 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def __trigger_save_button(self):
         if self.data_handler.output_file:
             self.data_handler.close_output_file()
-            print('结束采集')
         else:
             file = QtWidgets.QFileDialog.getSaveFileName(
-                self, "选择输出路径", "", "数据库 (*.db)")
+                self,
+                "Select path" if LAN == "en" else "选择输出路径",
+                "",
+                "Database (*.db)" if LAN == "en" else "数据库 (*.db)")
             if file[0]:
                 self.data_handler.link_output_file(file[0])
-                print(f'开始向{file[0]}采集')
         self.set_enable_state()
 
     def initialize_others(self):
         str_port = config.get('port')
         if not isinstance(str_port, str):
-            raise Exception('配置文件出错')
+            raise Exception('Config file error' if LAN == "en" else '配置文件出错')
         self.com_port.setText(config['port'])
 
     def __set_xy_range(self):
@@ -362,7 +365,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         try:
             self.data_handler.trigger()
             time_now = time.time()
-            if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
+            if self.data_handler.smoothed_value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
                 self.plot.setImage(self.__apply_swap(self.scaling(np.array(self.data_handler.smoothed_value[-1].T))),
                                    levels=self.y_lim)
                 self.__set_xy_range()

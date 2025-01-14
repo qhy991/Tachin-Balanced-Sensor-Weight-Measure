@@ -179,6 +179,11 @@ def build_preset_filters(sensor_class):
         '并联抵消-轻': lambda: CrosstalkFilter(sensor_class, None, 0.2, 3),
         '并联抵消-中': lambda: CrosstalkFilter(sensor_class, None, 0.3, 4),
         '并联抵消-重': lambda: CrosstalkFilter(sensor_class, None, 0.4, 5),
+        'None': lambda: Filter(sensor_class),
+        'Median-0.2s': lambda: MedianFilter(sensor_class, order=2),
+        'Median-1s': lambda: MedianFilter(sensor_class, order=20),
+        'Average-0.2s': lambda: MeanFilter(sensor_class, order=2),
+        'Average-1s': lambda: MeanFilter(sensor_class, order=20),
     }
     return str_to_filter
 

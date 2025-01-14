@@ -1,11 +1,15 @@
 """
 手形界面
 """
-
+# LAN = 'chs'
+LAN = 'en'
 import threading
 
 from PyQt5 import QtCore, QtWidgets, QtGui
-from hand_shape.layout.layout import Ui_Form
+if LAN == "en":
+    from hand_shape.layout.layout_en import Ui_Form
+else:
+    from hand_shape.layout.layout import Ui_Form
 import pyqtgraph
 import sys
 import time
@@ -34,6 +38,9 @@ RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), './re
 pixel_mapping = config_mapping['pixel_mapping']
 range_mapping = config_mapping['range_mapping']
 is_left_hand = config_mapping['is_left_hand']
+
+STR_CONNECTED = "Connected" if LAN == "en" else "已连接"
+STR_DISCONNECTED = "Disconnected" if LAN == "en" else "未连接"
 
 #
 STANDARD_PEN = pyqtgraph.mkPen('k')
@@ -98,9 +105,9 @@ class HandPlotManager:
         self.proj_funcs = {idx: self.make_projection_function(rect) for idx, rect in rects.items()}
         # 曲线图
         ax: pyqtgraph.PlotItem = fig_widget_1d.addPlot()
-        ax.setLabel(axis='left', text='电阻（最小值） (kΩ)')
+        ax.setLabel(axis='left', text='Resistance (min) (kΩ)' if LAN == "en" else '电阻（最小值） (kΩ)')
         ax.getAxis('left').enableAutoSIPrefix(False)
-        ax.setLabel(axis='bottom', text='时间 (s)')
+        ax.setLabel(axis='bottom', text='Time (s)' if LAN == "en" else '时间 (s)')
         ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
             [f'{10 ** (-_): .1f}' for _ in values]
         ax.getViewBox().setYRange(-self.log_y_lim[1], -self.log_y_lim[0])
@@ -251,8 +258,10 @@ class HandPlotManager:
     def process_image(self):
         if self.dd.value:
             self.dd.lock.acquire()
-            data_fingers = self.dd.value.popleft()  # 唯一的数据流入位置
-            time_now = self.dd.time.popleft()
+            data_fingers = self.dd.value[-1]  # 唯一的数据流入位置
+            time_now = self.dd.time[-1]
+            self.dd.value.clear()
+            self.dd.time.clear()
             self.dd.lock.release()
             self.lock.acquire()
             self.reset_image()
@@ -290,7 +299,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 重定向提示
         sys.excepthook = self.catch_exceptions
         #
-        self.data_handler = DataHandler(TactileDriverWithPreprocessing, max_len=16)
+        self.data_handler = DataHandler(TactileDriverWithPreprocessing, max_len=256)
         self.is_running = False
         #
         self.hand_plot_manager = HandPlotManager(fig_widget_2d=self.fig_image,
@@ -320,7 +329,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         traceback_format = traceback.format_exception(ty, value, tb)
         traceback_string = "".join(traceback_format)
         print(traceback_string)
-        QtWidgets.QMessageBox.critical(self, "错误", "{}".format(value))
+        QtWidgets.QMessageBox.critical(self, "Error" if LAN == "en" else "错误", "{}".format(value))
         # self.old_hook(ty, value, tb)
 
     def dump_config(self):
@@ -349,20 +358,24 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.set_enable_state()
 
     def pre_initialize(self):
-        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow", "手掌电子皮肤采集程序"))
+        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
+                                                              "E-skin Display" if LAN == 'en' else "电子皮肤采集程序"))
         self.setWindowIcon(QtGui.QIcon(os.path.join(RESOURCE_FOLDER, "tujian.ico")))
+        logo_path = "./ordinary/resources/logo.png"
+        self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
+        self.label_logo.setScaledContents(True)
         self.initialize_buttons()
         self.set_enable_state()
 
     def set_enable_state(self):
         self.button_start.setEnabled(not self.is_running)
         self.button_stop.setEnabled(self.is_running)
-        self.label_output.setText("已连接" if self.is_running else "未连接")
+        self.label_output.setText(STR_CONNECTED if self.is_running else STR_DISCONNECTED)
         self.button_save_to.setEnabled(self.is_running)
         if self.data_handler.output_file:
-            self.button_save_to.setText("结束采集")
+            self.button_save_to.setText("End acquisition" if LAN == "en" else "结束采集")
         else:
-            self.button_save_to.setText("采集到...")
+            self.button_save_to.setText("Acquire to file..." if LAN == "en" else "采集到...")
 
     def initialize_buttons(self):
         self.button_start.clicked.connect(self.start)
@@ -381,9 +394,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
                 if self.hist_trigger:
                     if time_now > self.hist_trigger[-1]:
                         if time_now - self.hist_trigger[0] > 1.:
-                            self.label_output.setText("未连接")
+                            self.label_output.setText(STR_DISCONNECTED)
                         else:
-                            self.label_output.setText("已连接")
+                            self.label_output.setText(STR_CONNECTED)
                 self.hist_trigger.append(time_now)
         except USBError:
             self.stop()

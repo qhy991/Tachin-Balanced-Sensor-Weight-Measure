@@ -2,23 +2,42 @@
 显示界面，适用于large采集卡
 顺便可以给small采集卡使用
 """
+# LAN = 'chs'
+LAN = 'en'
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 import time
-from ordinary.layout.layout_3d import Ui_Form
+if LAN == "en":
+    from ordinary.layout.layout_3d_en import Ui_Form
+else:
+    from ordinary.layout.layout_3d import Ui_Form
 import pyqtgraph
+import OpenGL
+# import OpenGL_accelerate
+# 设置使用硬件加速
+OpenGL.ERROR_CHECKING = False
+OpenGL.ERROR_ON_COPY = True
+OpenGL.ERROR_LOGGING = False
+OpenGL.FULL_LOGGING = False
 import pyqtgraph.opengl as gl
+# 设置使用硬件加速
+pyqtgraph.setConfigOption('useOpenGL', True)
+
 #
 from usb.core import USBError
 import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from large.sensor_driver import LargeSensorDriver
+from usb_driver.sensor_driver import LargeSensorDriver
 #
 from config import config, save_config
 from scipy.interpolate import interp1d
+
+x_invert = config['x_invert']
+y_invert = config['y_invert']
+xy_swap = config['xy_swap']
 
 
 def create_color_map(data):
@@ -39,7 +58,8 @@ def create_color_map(data):
     # Interpolate colors
     # indices = (data * (colors.shape[0] - 1)).astype(int)
     # 改成插值
-    interps = [interp1d(np.linspace(0., 1., colors.shape[0]), colors[:, j], axis=0, bounds_error=False)
+    interps = [interp1d(np.linspace(0., 1., colors.shape[0]), colors[:, j], axis=0, bounds_error=False,
+                        fill_value=(colors[0, j], colors[-1, j]))
                for j in range(3)]
     return np.stack([interp(data) for interp in interps], axis=-1)
 
@@ -63,6 +83,10 @@ assert Y_LIM_INITIAL[1] <= MAXIMUM_Y_LIM + 0.5
 
 def log(v):
     return np.log(np.maximum(v, 1e-6)) / np.log(10)
+
+
+def inverse(v):
+    return v
 
 
 class Window(QtWidgets.QWidget, Ui_Form):
@@ -92,7 +116,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self.catch_exceptions
         #
         if mode == 'direct':
-            self.data_handler = DataHandler(LargeSensorDriver)
+            self.data_handler = DataHandler(LargeSensorDriver, max_len=16, curve_on=False)
         elif mode == 'socket':
             self.data_handler = DataHandler(SocketClient)
         else:
@@ -118,13 +142,14 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 是否处于使用标定状态
         self.scaling = log
         # 绘图用
+        self.surface = None
 
     def catch_exceptions(self, ty, value, tb):
         # 错误重定向为弹出对话框
         traceback_format = traceback.format_exception(ty, value, tb)
         traceback_string = "".join(traceback_format)
         print(traceback_string)
-        QtWidgets.QMessageBox.critical(self, "错误", "{}".format(value))
+        QtWidgets.QMessageBox.critical(self, "Error" if LAN == "en" else "错误", "{}".format(value))
         # self.old_hook(ty, value, tb)
 
     def dump_config(self):
@@ -155,8 +180,12 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.set_enable_state()
 
     def pre_initialize(self):
-        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow", "电子皮肤采集程序"))
+        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
+                                                              "E-skin Display" if LAN == "en" else "电子皮肤采集程序"))
         self.setWindowIcon(QtGui.QIcon("./ordinary/layout/tujian.ico"))
+        logo_path = "./ordinary/resources/logo.png"
+        self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
+        self.label_logo.setScaledContents(True)
         self.initialize_image()
         self.initialize_buttons()
         self.initialize_others()
@@ -171,6 +200,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
         layout = QtWidgets.QGridLayout()
         layout.addWidget(self.view, 0, 0)
         fig_widget.setLayout(layout)
+        self.view.mousePressEvent = lambda event: None
+        self.view.mouseReleaseEvent = lambda event: None
+        self.view.mouseMoveEvent = lambda event: None
+        self.view.wheelEvent = lambda event: None
         return self.view
 
     def initialize_image(self):
@@ -199,11 +232,14 @@ class Window(QtWidgets.QWidget, Ui_Form):
         line.get_axis = lambda: ax
         return line
 
-    def __apply_swap(self, data):
-        if config['xy_swap']:
-            return data.T
-        else:
-            return data
+    def __apply_transform(self, data):
+        if x_invert:
+            data = data[::-1, :]
+        if not y_invert:
+            data = data[:, ::-1]
+        if xy_swap:
+            data = data.T
+        return data
 
     @property
     def y_lim(self):
@@ -212,7 +248,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
         if self._using_calibration:
             return [0, 5.]
         else:
-            return [-self.log_y_lim[1], -self.log_y_lim[0]]
+            if self.scaling == log:
+                return [-self.log_y_lim[1], -self.log_y_lim[0]]
+            else:
+                return [self.scaling(10 ** (-self.log_y_lim[1])), self.scaling(10 ** (-self.log_y_lim[0]))]
 
     def __apply_y_lim(self):
         # for line in [self.line_maximum, self.line_tracing]:
@@ -251,9 +290,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_stop.setEnabled(self.is_running)
         self.button_save_to.setEnabled(self.is_running)
         if self.data_handler.output_file:
-            self.button_save_to.setText("结束采集")
+            self.button_save_to.setText("End acquisition" if LAN == "en" else "结束采集")
         else:
-            self.button_save_to.setText("采集到...")
+            self.button_save_to.setText("Acquire to file..." if LAN == "en" else "采集到...")
         if self.data_handler.driver.__class__.__name__ in \
                 ['FakeSensorDriver', 'SmallSensorDriver', 'SocketClient', 'LargeSensorDriver']:
             self.com_port.setEnabled(not self.is_running)
@@ -267,11 +306,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.dump_config()
 
     def __set_interpolate_and_blur(self):
-        # interpolate = int(self.combo_interpolate.currentText())
-        # blur = float(self.combo_blur.currentText())
-        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=4)
-        # config['interpolate_index'] = self.combo_interpolate.currentIndex()
-        # config['blur_index'] = self.combo_blur.currentIndex()
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=2)
         self.dump_config()
 
     def __set_calibrator(self):
@@ -302,7 +337,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
             print('结束采集')
         else:
             file = QtWidgets.QFileDialog.getSaveFileName(
-                self, "选择输出路径", "", "数据库 (*.db)")
+                self,
+                "Select path" if LAN == "en" else "选择输出路径",
+                "",
+                "Database (*.db)" if LAN == "en" else "数据库 (*.db)")
             if file[0]:
                 self.data_handler.link_output_file(file[0])
                 print(f'开始向{file[0]}采集')
@@ -311,7 +349,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def initialize_others(self):
         str_port = config.get('port')
         if not isinstance(str_port, str):
-            raise Exception('配置文件出错')
+            raise Exception('Config file error' if LAN == "en" else '配置文件出错')
         self.com_port.setText(config['port'])
 
     def __set_xy_range(self):
@@ -323,8 +361,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     MESH_PLOT_STYLE = {
         'shader': 'shaded',
-                       'glOptions': 'additive',
-                        'smooth': True,
+        'glOptions': 'additive',
+        'smooth': True,
         'drawEdges': True,
         'edgeColor': (1, 1, 1, 0.05),
                        }
@@ -334,15 +372,11 @@ class Window(QtWidgets.QWidget, Ui_Form):
         try:
             self.data_handler.trigger()
             time_now = time.time()
-            if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
-                self.view.clear()
-                Z = self.__apply_swap(log(np.array(self.data_handler.smoothed_value[-1])))
+            if self.data_handler.smoothed_value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
+                Z = self.__apply_transform(self.scaling(np.array(self.data_handler.smoothed_value[-1])))
                 Z = (np.clip(Z, min(self.y_lim), max(self.y_lim)) - min(self.y_lim)) / (max(self.y_lim) - min(self.y_lim))
                 colors = create_color_map(Z)
-                self.surface = gl.GLSurfacePlotItem(x=self.xx, y=self.yy, z=Z * 0.05, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
-                # self.surface = gl.GLSurfacePlotItem(x=X, y=Y, z=Z * 0.1, **self.MESH_PLOT_STYLE)
-
-                self.view.addItem(self.surface)
+                self.surface.setData(z=Z * 0.1, colors=colors[:, :, :3])
             self.last_trigger_time = time_now
         except USBError:
             self.stop()
@@ -353,9 +387,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def trigger_null(self):
         self.view.clear()
-        Z = self.__apply_swap(np.zeros([int(_ * self.data_handler.interpolation.interp) for _ in self.data_handler.driver.SENSOR_SHAPE]))
+        Z = self.__apply_transform(np.zeros([int(_ * self.data_handler.interpolation.interp) for _ in self.data_handler.driver.SENSOR_SHAPE]))
         colors = create_color_map(Z)
-        self.surface = gl.GLSurfacePlotItem(x=self.xx, y=self.yy, z=Z * 0.05, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
+        self.surface = gl.GLSurfacePlotItem(x=self.xx, y=self.yy, z=Z * 0.1, colors=colors[:, :, :3], **self.MESH_PLOT_STYLE)
         self.view.addItem(self.surface)
 
     def closeEvent(self, a0: QtGui.QCloseEvent) -> None:

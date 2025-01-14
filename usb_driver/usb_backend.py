@@ -191,7 +191,7 @@ class UsbBackend:
             if self.last_finish_time > 0:
                 self.last_interval = time_now - self.last_finish_time
             self.last_finish_time = time_now
-            self.buffer.append((self.finished_frame, self.last_finish_time))
+            self.buffer.append(([_.copy() for _ in self.finished_frame], self.last_finish_time))
 
     def __abort_frame(self):
         for bit in range(self.bytes_per_point):
@@ -208,6 +208,7 @@ class UsbBackend:
             return bits, t
         else:
             return None, None
+
 
 class BulkChannel:
     # USB协议相关

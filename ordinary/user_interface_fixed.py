@@ -2,12 +2,17 @@
 显示界面，适用于large采集卡
 顺便可以给small采集卡使用
 """
+# LAN = "chs"
+LAN = "en"
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
 import time
-from ordinary.layout.layout_fixed import Ui_Form
+if LAN == "en":
+    from ordinary.layout.layout_fixed_en import Ui_Form
+else:
+    from ordinary.layout.layout_fixed import Ui_Form
 import pyqtgraph
 #
 from usb.core import USBError
@@ -15,7 +20,7 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from large.sensor_driver import LargeSensorDriver
+from usb_driver.sensor_driver import LargeSensorDriver
 from server.socket_client import SocketClient
 #
 from config import config, save_config
@@ -25,7 +30,7 @@ STANDARD_PEN = pyqtgraph.mkPen('k')
 LINE_STYLE = {'pen': pyqtgraph.mkPen('k'), 'symbol': 'o', 'symbolBrush': 'k', 'symbolSize': 4}
 SCATTER_STYLE = {'pen': pyqtgraph.mkPen('k', width=2), 'symbol': 's', 'brush': None, 'symbolSize': 20}
 font = QtGui.QFont()
-FONT_SIZE = 12
+FONT_SIZE = 10
 font.setPointSize(FONT_SIZE)
 font.setFamily('Microsoft YaHei')
 FONT_METRICS = QtGui.QFontMetrics(font)
@@ -39,7 +44,7 @@ X_INVERT = config['x_invert']
 Y_INVERT = config['y_invert']
 DISPLAY_RANGE = [[25, 39], [25, 39]]
 MINIMUM_Y_LIM = 0.0
-MAXIMUM_Y_LIM = 3.0
+MAXIMUM_Y_LIM = 4.0
 assert Y_LIM_INITIAL.__len__() == 2
 assert Y_LIM_INITIAL[0] >= MINIMUM_Y_LIM - 0.5
 assert Y_LIM_INITIAL[1] <= MAXIMUM_Y_LIM + 0.5
@@ -113,7 +118,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
         traceback_format = traceback.format_exception(ty, value, tb)
         traceback_string = "".join(traceback_format)
         print(traceback_string)
-        QtWidgets.QMessageBox.critical(self, "错误", "{}".format(value))
+        QtWidgets.QMessageBox.critical(self, "Error" if LAN == "en" else "错误",
+                                       "{}".format(value))
         # self.old_hook(ty, value, tb)
 
     def keyPressEvent(self, event):
@@ -153,7 +159,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.set_enable_state()
 
     def pre_initialize(self):
-        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow", "电子皮肤采集程序-途见科技"))
+        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
+                                                              "E-skin Display" if LAN == "en" else
+                                                              "电子皮肤采集程序-途见科技"))
         self.setWindowIcon(QtGui.QIcon("./ordinary/layout/tujian.ico"))
         logo_path = "./ordinary/resources/logo.png"
         self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
@@ -189,11 +197,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         flag = 0 <= xx < self.data_handler.driver.SENSOR_SHAPE[0] and 0 <= yy < self.data_handler.driver.SENSOR_SHAPE[1]
         if flag:
             self.data_handler.set_tracing(xx, yy)
-            if self.data_handler.value:
-                v_point = self.data_handler.value[-1][xx, yy] ** -1
-                print(xx, yy, round(v_point, 1))
-            else:
-                print(xx, yy)
+            print(xx, yy)
 
     def __on_mouse_wheel(self, event: QGraphicsSceneWheelEvent):
         if not self.fixed_range:
@@ -238,9 +242,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def create_a_line(self, fig_widget: pyqtgraph.GraphicsLayoutWidget):
         ax: pyqtgraph.PlotItem = fig_widget.addPlot()
-        ax.setLabel(axis='left', text=LABEL_RESISTANCE, **{'font-size': '12pt', 'font-family': 'Microsoft YaHei'})
+        ax.setLabel(axis='left', text=LABEL_RESISTANCE, **{'font-size': '10pt', 'font-family': 'Microsoft YaHei'})
         ax.getAxis('left').enableAutoSIPrefix(False)
-        ax.setLabel(axis='bottom', text=LABEL_TIME, **{'font-size': '12pt', 'font-family': 'Microsoft YaHei'})
+        ax.setLabel(axis='bottom', text=LABEL_TIME, **{'font-size': '10pt', 'font-family': 'Microsoft YaHei'})
         # ax.getAxis('left').tickStrings = lambda values, scale, spacing:\
         #     [(f'{_ ** -1: .1f}' if _ > 0. else 'INF') for _ in values]
         ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
@@ -310,7 +314,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_stop.setEnabled(self.is_running)
 
     def __set_filter(self):
-        self.data_handler.set_filter("无", "均值-0.2s")
+        self.data_handler.set_filter("无", "Average-0.2s" if LAN == "en" else "均值-0.2s")
 
     def __set_interpolate_and_blur(self):
         self.data_handler.set_interpolation_and_blur(interpolate=4, blur=0.125)
@@ -328,23 +332,25 @@ class Window(QtWidgets.QWidget, Ui_Form):
             print('结束采集')
         else:
             file = QtWidgets.QFileDialog.getSaveFileName(
-                self, "选择输出路径", "", "数据库 (*.db)")
+                self,
+                "Select path" if LAN == "en" else "选择输出路径",
+                "",
+                "Database (*.db)" if LAN == "en" else "数据库 (*.db)")
             if file[0]:
                 self.data_handler.link_output_file(file[0])
-                print(f'开始向{file[0]}采集')
         self.set_enable_state()
 
     def initialize_others(self):
         str_port = config.get('port')
         if not isinstance(str_port, str):
-            raise Exception('配置文件出错')
+            raise Exception('Config file error' if LAN == "en" else '配置文件出错')
         self.com_port.setText(config['port'])
 
     def trigger(self):
         try:
             self.data_handler.trigger()
             time_now = time.time()
-            if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
+            if self.data_handler.smoothed_value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
                 self.plot.setImage(self.__apply_swap(log(np.array(self.data_handler.smoothed_value[-1].T))),
                                    levels=self.y_lim)
                 self.__set_xy_range()

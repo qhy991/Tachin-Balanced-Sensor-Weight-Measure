@@ -21,7 +21,7 @@ import os
 import traceback
 import numpy as np
 from data.data_handler_multiple import DataHandler
-from large.sensor_driver import LargeSensorDriver
+from usb_driver.sensor_driver import LargeSensorDriver
 #
 from PIL import Image
 from config import config, save_config, config_multiple

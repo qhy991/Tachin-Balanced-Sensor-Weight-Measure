@@ -1,1 +1,1 @@
-{"port": "1", "interpolate_index": 0, "blur_index": 0, "filter_frame_index": 0, "filter_time_index": 0, "y_lim": [2.5, 4.0], "trigger_time": 20, "x_invert": 1, "y_invert": 0, "xy_swap": 0, "fixed_range": 0}
+{"port": "1", "interpolate_index": 0, "blur_index": 0, "filter_frame_index": 0, "filter_time_index": 4, "y_lim": [1.5, 3.5], "trigger_time": 15, "dump_interval": 1, "x_invert": 10, "y_invert": 0, "xy_swap": 0, "fixed_range": 0}
