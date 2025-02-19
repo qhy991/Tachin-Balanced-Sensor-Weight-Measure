@@ -1,4 +1,4 @@
-from usb_driver.sensor_driver import LargeSensorDriver as SensorDriver
+from backends.usb_driver import ZWUsbSensorDriver as SensorDriver
 import copy
 
 import numpy as np

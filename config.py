@@ -10,7 +10,7 @@ config = json.load(
 
 try:
     config_mapping = json.load(
-        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hand_shape/config_mapping_hand.json'), 'rt',
+        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/hand_shape/config_mapping_hand.json'), 'rt',
              encoding='utf-8'),
     )
 except FileNotFoundError:

@@ -2,10 +2,9 @@
 import socket
 import numpy as np
 import time
-from data.data_handler import VALUE_DTYPE
-from abstract_sensor_driver import AbstractSensorDriver
+from backends.abstract_sensor_driver import AbstractSensorDriver
 import atexit
-from server.utils import crc, CommandCodes
+from server.server_utils import crc, CommandCodes
 from utils.performance_monitor import Ticker
 
 ticker = Ticker()
@@ -96,7 +95,7 @@ class SocketClient(AbstractSensorDriver):
                                               .astype(float) * 1e-3)[0]
                     t_now = self.base_time + time_after_begin_bytes
                     if t_now != self.last_t_now:
-                        value_bytes = np.frombuffer(data[9:-1], dtype=VALUE_DTYPE).reshape(self.SENSOR_SHAPE)
+                        value_bytes = np.frombuffer(data[9:-1], dtype=np.int16).reshape(self.SENSOR_SHAPE)
                         if t_now < self.last_t_now:
                             self.base_time += self.PERIOD_UNIT * 1e-3
                             t_now += self.PERIOD_UNIT * 1e-3

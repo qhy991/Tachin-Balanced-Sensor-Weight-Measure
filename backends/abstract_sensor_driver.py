@@ -1,6 +1,3 @@
-import numpy as np
-# 模版
-
 
 class AbstractSensorDriver:
 
@@ -18,4 +15,7 @@ class AbstractSensorDriver:
         raise NotImplementedError()
 
     def get(self):
+        raise NotImplementedError()
+
+    def get_last(self):
         raise NotImplementedError()

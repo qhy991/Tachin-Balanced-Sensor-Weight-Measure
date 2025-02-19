@@ -1,15 +1,15 @@
 """
 手形界面
 """
-# LAN = 'chs'
-LAN = 'en'
+LAN = 'chs'
+# LAN = 'en'
 import threading
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 if LAN == "en":
-    from hand_shape.layout.layout_en import Ui_Form
+    from interfaces.hand_shape.layout.layout_en import Ui_Form
 else:
-    from hand_shape.layout.layout import Ui_Form
+    from interfaces.hand_shape.layout.layout import Ui_Form
 import pyqtgraph
 import sys
 import time
@@ -34,7 +34,7 @@ legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
 STANDARD_PEN = pyqtgraph.mkPen('k')
 LINE_STYLE = {'pen': pyqtgraph.mkPen('k'), 'symbol': 'o', 'symbolBrush': 'k', 'symbolSize': 4}
 
-RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), './resources')
+RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources')
 pixel_mapping = config_mapping['pixel_mapping']
 range_mapping = config_mapping['range_mapping']
 is_left_hand = config_mapping['is_left_hand']
@@ -216,7 +216,7 @@ class HandPlotManager:
 
         def projection_function(data: np.ndarray):
             # data = data * rect[3]
-            data = Interpolation(2, 0.5, data.shape).smooth(data * rect[3])
+            data = Interpolation(2, 1.0, data.shape).smooth(data * rect[3])
             data = np.log(np.maximum(data, 1e-6)) / np.log(10)
             data = np.clip((data + self.log_y_lim[1]) / (self.log_y_lim[1] - self.log_y_lim[0]), 0., 1.)
             img_original = Image.fromarray((cmap.map(data.T, mode=float) * 255.).astype(np.uint8),
@@ -251,7 +251,10 @@ class HandPlotManager:
         ticker = Ticker()
         ticker.tic()
         while True:
-            self.process_image()
+            try:
+                self.process_image()
+            except ValueError:
+                pass
             # ticker.toc("process_image")
             time.sleep(0.001)
 
@@ -361,7 +364,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
                                                               "E-skin Display" if LAN == 'en' else "电子皮肤采集程序"))
         self.setWindowIcon(QtGui.QIcon(os.path.join(RESOURCE_FOLDER, "tujian.ico")))
-        logo_path = "./ordinary/resources/logo.png"
+        logo_path = "./interfaces/hand_shape/resources/logo.png"
         self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
         self.label_logo.setScaledContents(True)
         self.initialize_buttons()

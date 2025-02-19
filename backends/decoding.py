@@ -3,6 +3,7 @@
 import time
 import numpy as np
 import crcmod.predefined
+from collections import deque
 
 crc = crcmod.predefined.mkCrcFun('crc-ccitt-false')
 
@@ -14,27 +15,42 @@ class Decoder:
     def __init__(self, config_array):
         self.row_array = config_array['row_array']
         self.column_array = config_array['column_array']
-        self.message_size = config_array.get('message_size', 1024)  # 默认
         self.bytes_per_point = config_array.get('bytes_per_point', 2)  # 默认
+        assert self.bytes_per_point in [1, 2]
+        self.buffer_length = config_array.get('buffer_length', 64)  # 默认
         self.sensor_shape = (self.row_array.__len__(), self.column_array.__len__())
         self.package_size = HEAD_LENGTH + CRC_LENGTH + self.sensor_shape[1] * self.bytes_per_point
+        #
+        self.preparing_frame \
+            = [np.zeros((self.sensor_shape[0] * self.sensor_shape[1], ), dtype=np.uint8)
+               for _ in range(self.bytes_per_point)]
+        self.finished_frame \
+            = [np.zeros((self.sensor_shape[0] * self.sensor_shape[1], ), dtype=np.uint8)
+               for _ in range(self.bytes_per_point)]
+        self.last_finish_time = 0.
+        self.last_frame_number = None
+        self.last_package_number = None
+        self.buffer = deque(maxlen=self.buffer_length)
+        self.message_cache = np.empty(0, dtype=np.uint8)
+        self.max_cache_length = self.package_size * self.buffer_length
+        #
+        self.warn_info = ''
 
     def __call__(self, message):
+        self.message_cache = np.concatenate((self.message_cache, np.array(message, dtype=np.uint8)), axis=0)
+        #
         offset = 0
-        m = len(message)
-
-        while message.__len__() < self.package_size:
-            # 格式：AA 10 33 “长度” 帧号 包号 数据 CRC
-            self.warn_info = ''
-            if (message[offset] == 0xaa)\
-                    & (message[offset + self.package_size] == 0xaa):
-
+        while offset + self.package_size <= self.message_cache.__len__():
+            # 校验前三位为[0xaa, 0x10, 0x33]
+            if self.message_cache[offset + 0] == 0xaa\
+                    and self.message_cache[offset + 1] == 0x10\
+                    and self.message_cache[offset + 2] == 0x33:
                 # 包头效验正确
-                frame_number = message[offset + 4]
-                package_number = message[offset + 5]
-                data = message[offset
-                               :offset + HEAD_LENGTH + self.sensor_shape[1] * self.bytes_per_point]
-                crc_received = message[offset + HEAD_LENGTH + self.sensor_shape[1] * self.bytes_per_point
+                frame_number = self.message_cache[offset + 4]
+                package_number = self.message_cache[offset + 5]
+                data = self.message_cache[offset:offset + HEAD_LENGTH + self.sensor_shape[1] * self.bytes_per_point]
+                crc_received = \
+                    self.message_cache[offset + HEAD_LENGTH + self.sensor_shape[1] * self.bytes_per_point
                                        :offset + HEAD_LENGTH + CRC_LENGTH + self.sensor_shape[1] * self.bytes_per_point]
                 crc_calculated = self.__calculate_crc(data)
                 if crc_received[0] * 256 + crc_received[1] != crc_calculated:
@@ -44,16 +60,14 @@ class Decoder:
                     flag = self.__validate_package(frame_number, package_number)
 
                 if flag:
-                    self.__write_data(offset, package_number)
-                offset += self.package_size
+                    self.__write_data(self.message_cache, offset, package_number)
+                    offset += self.package_size
+                else:
+                    offset += 1
             else:
                 offset += 1
-                self.warn_info = ''
-
-            if self.warn_info:
-                print(self.warn_info)
-
         self.message_cache = self.message_cache[offset:]
+        self.message_cache = self.message_cache[-self.max_cache_length:]
 
     def __validate_package(self, frame_number, package_number):
         if self.last_frame_number is None:
@@ -84,8 +98,8 @@ class Decoder:
                     self.last_package_number = package_number
         return flag
 
-    def __write_data(self, offset, package_number):
-        preparing_cursor = self.sensor_shape[1] * FOLDING_ROW[package_number.astype(np.uint16)]
+    def __write_data(self, message, offset, package_number):
+        preparing_cursor = self.sensor_shape[1] * self.row_array[package_number.astype(np.uint16)]
         begin = preparing_cursor
         end = preparing_cursor + self.sensor_shape[1]
         slice_to = slice(begin, end)
@@ -95,23 +109,19 @@ class Decoder:
             self.bytes_per_point
         ) for bit in range(self.bytes_per_point)]
         for bit, slice_from in enumerate(slices_from):
-            self.preparing_frame[bit][slice_to] = self.message_cache[slice_from][FOLDING_COL]
-
-    def read_void(self):
-        try:
-            self.last_message[...] = self.epi_t.read(MESSAGE_SIZE)
-        except usb.core.USBError as e:
-            print(e)
+            self.preparing_frame[bit][slice_to] = message[slice_from][self.column_array]
 
     def __finish_frame(self):
-        with self.lock:
-            for bit in range(self.bytes_per_point):
-                self.finished_frame[bit][...] = self.preparing_frame[bit][...]
-            time_now = time.time()
-            if self.last_finish_time > 0:
-                self.last_interval = time_now - self.last_finish_time
-            self.last_finish_time = time_now
-            self.buffer.append(([_.copy() for _ in self.finished_frame], self.last_finish_time))
+        for bit in range(self.bytes_per_point):
+            self.finished_frame[bit][...] = self.preparing_frame[bit][...]
+        time_now = time.time()
+        if self.last_finish_time > 0:
+            self.last_interval = time_now - self.last_finish_time
+        self.last_finish_time = time_now
+        data = sum([(_.astype(np.int8) if bit == 0 else _).astype(np.int16)
+                    * (2 ** (8 * (self.bytes_per_point - bit - 1)))
+                    for bit, _ in enumerate(self.finished_frame)]).reshape(self.sensor_shape)
+        self.buffer.append((data, self.last_finish_time))
 
     def __abort_frame(self):
         for bit in range(self.bytes_per_point):
@@ -123,9 +133,15 @@ class Decoder:
 
     def get(self):
         if self.buffer:
-            with self.lock:
-                bits, t = self.buffer.popleft()
-            return bits, t
+            data, t = self.buffer.popleft()
+            return data, t
         else:
             return None, None
 
+    def get_last(self):
+        if self.buffer:
+            data, t = self.buffer.pop()
+            self.buffer.clear()
+            return data, t
+        else:
+            return None, None

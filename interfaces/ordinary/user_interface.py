@@ -2,17 +2,17 @@
 显示界面，适用于large采集卡
 顺便可以给small采集卡使用
 """
-# LAN = 'chs'
-LAN = 'en'
+LAN = 'chs'
+# LAN = 'en'
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
 import time
 if LAN == 'en':
-    from ordinary.layout.layout_en import Ui_Form
+    from interfaces.ordinary.layout.layout_en import Ui_Form
 else:
-    from ordinary.layout.layout import Ui_Form
+    from interfaces.ordinary.layout.layout import Ui_Form
 import pyqtgraph
 #
 from usb.core import USBError
@@ -20,11 +20,10 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from usb_driver.sensor_driver import LargeSensorDriver
-from usb_driver.sensor_driver import SensorDriver16
-from usb_driver.sensor_driver_reduced import LargeSensorDriverReduced
-from serial_driver.sensor_driver import SerialSensorDriver16
-# from server.socket_client import SocketClient
+from backends.usb_driver import LargeUsbSensorDriver
+from backends.serial_driver import Serial16SensorDriver
+from backends.can_driver import Can16SensorDriver
+from server.socket_client import SocketClient
 #
 from config import config, save_config
 
@@ -84,11 +83,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.line_tracing = self.create_a_line(self.fig_2)
         self.plot = self.create_an_image(self.fig_image)
         if mode == 'standard':
-            self.data_handler = DataHandler(LargeSensorDriver)
-            self.scaling = log
-            self.__set_using_calibration(False)
-        elif mode == '16':
-            self.data_handler = DataHandler(SensorDriver16)
+            self.data_handler = DataHandler(LargeUsbSensorDriver)
             self.scaling = log
             self.__set_using_calibration(False)
         elif mode == 'socket':
@@ -100,7 +95,11 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.scaling = lambda x: x
             self.__set_using_calibration(True)
         elif mode == 'serial':
-            self.data_handler = DataHandler(SerialSensorDriver16)
+            self.data_handler = DataHandler(Serial16SensorDriver)
+            self.scaling = log
+            self.__set_using_calibration(False)
+        elif mode == 'can':
+            self.data_handler = DataHandler(Can16SensorDriver)
             self.scaling = log
             self.__set_using_calibration(False)
         else:

@@ -10,9 +10,11 @@
       <excludeFolder url="file://$MODULE_DIR$/output" />
       <excludeFolder url="file://$MODULE_DIR$/obsoleted" />
       <excludeFolder url="file://$MODULE_DIR$/with_nn" />
-      <excludeFolder url="file://$MODULE_DIR$/ordinary/OLD" />
       <excludeFolder url="file://$MODULE_DIR$/data/OLD" />
       <excludeFolder url="file://$MODULE_DIR$/server/old/serverOLD" />
+      <excludeFolder url="file://$MODULE_DIR$/interfaces/ordinary/OLD" />
+      <excludeFolder url="file://$MODULE_DIR$/extern" />
+      <excludeFolder url="file://$MODULE_DIR$/server/old" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.10 (sensor_driver_gui) (2)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

@@ -243,7 +243,7 @@ class DataHandler:
 
 
 if __name__ == "__main__":
-    from usb_driver.sensor_driver import UsbSensorDriver
+    from backends.sensor_driver import UsbSensorDriver
     dh = DataHandler(UsbSensorDriver, [0, 3])
     dh.connect()
     while True:

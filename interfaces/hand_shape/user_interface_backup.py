@@ -5,7 +5,7 @@
 import threading
 
 from PyQt5 import QtCore, QtWidgets, QtGui
-from hand_shape.layout.layout import Ui_Form
+from interfaces.hand_shape.layout.layout import Ui_Form
 import pyqtgraph
 import sys
 import time
@@ -29,7 +29,7 @@ legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
 STANDARD_PEN = pyqtgraph.mkPen('k')
 LINE_STYLE = {'pen': pyqtgraph.mkPen('k'), 'symbol': 'o', 'symbolBrush': 'k', 'symbolSize': 4}
 
-RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), './resources')
+RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources')
 pixel_mapping = config_mapping['pixel_mapping']
 range_mapping = config_mapping['range_mapping']
 is_left_hand = config_mapping['is_left_hand']

@@ -10,9 +10,9 @@ from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
 import time
 if LAN == "en":
-    from ordinary.layout.layout_fixed_en import Ui_Form
+    from interfaces.ordinary.layout.layout_fixed_en import Ui_Form
 else:
-    from ordinary.layout.layout_fixed import Ui_Form
+    from interfaces.ordinary.layout.layout_fixed import Ui_Form
 import pyqtgraph
 #
 from usb.core import USBError
@@ -20,7 +20,7 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from usb_driver.sensor_driver import LargeSensorDriver
+from backends.sensor_driver import LargeSensorDriver
 from server.socket_client import SocketClient
 #
 from config import config, save_config

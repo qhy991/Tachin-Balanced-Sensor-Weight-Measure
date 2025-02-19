@@ -2,19 +2,18 @@
 显示界面，适用于large采集卡
 顺便可以给small采集卡使用
 """
-# LAN = 'chs'
-LAN = 'en'
+LAN = 'chs'
+# LAN = 'en'
 
 from PyQt5 import QtCore, QtWidgets, QtGui
-from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 import time
 if LAN == "en":
-    from ordinary.layout.layout_3d_en import Ui_Form
+    from interfaces.ordinary.layout.layout_3d_en import Ui_Form
 else:
-    from ordinary.layout.layout_3d import Ui_Form
+    from interfaces.ordinary.layout.layout_3d import Ui_Form
 import pyqtgraph
 import OpenGL
-# import OpenGL_accelerate
+import OpenGL_accelerate
 # 设置使用硬件加速
 OpenGL.ERROR_CHECKING = False
 OpenGL.ERROR_ON_COPY = True
@@ -30,7 +29,7 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from usb_driver.sensor_driver import LargeSensorDriver
+from backends.usb_driver import LargeUsbSensorDriver
 #
 from config import config, save_config
 from scipy.interpolate import interp1d
@@ -116,7 +115,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self.catch_exceptions
         #
         if mode == 'direct':
-            self.data_handler = DataHandler(LargeSensorDriver, max_len=16, curve_on=False)
+            self.data_handler = DataHandler(LargeUsbSensorDriver, max_len=16, curve_on=False)
         elif mode == 'socket':
             self.data_handler = DataHandler(SocketClient)
         else:
