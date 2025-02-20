@@ -303,6 +303,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self.catch_exceptions
         #
         self.data_handler = DataHandler(TactileDriverWithPreprocessing, max_len=256)
+        self.data_handler.set_filter(filter_name_frame="无", filter_name_time="中值-0.2s")
         self.is_running = False
         #
         self.hand_plot_manager = HandPlotManager(fig_widget_2d=self.fig_image,

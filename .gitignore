@@ -6,3 +6,11 @@
 /dist/
 /super_res_venv/
 /__pycache__/
+/build_standalone.bat
+/build_standalone_fixed.bat
+/build_data_viewer.bat
+/build_standalone_hand_shape.bat
+/build_standalone_serial.bat
+/interface_hand_shape.spec
+/interface_large_sensor.spec
+/start_socket_server.bat

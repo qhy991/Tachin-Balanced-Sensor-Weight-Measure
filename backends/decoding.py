@@ -68,6 +68,8 @@ class Decoder:
                 offset += 1
         self.message_cache = self.message_cache[offset:]
         self.message_cache = self.message_cache[-self.max_cache_length:]
+        # if self.warn_info:
+        #     print(self.warn_info)
 
     def __validate_package(self, frame_number, package_number):
         if self.last_frame_number is None:
@@ -83,7 +85,8 @@ class Decoder:
                     self.__finish_frame()
                     flag = True
                 else:
-                    self.warn_info = 'Package number error'
+                    self.warn_info = f'Package number error: ' \
+                                     f'{self.last_frame_number}, {self.last_package_number} -> {frame_number}, {package_number}'
                     flag = False
                 self.last_frame_number = frame_number
                 self.last_package_number = package_number
@@ -93,7 +96,8 @@ class Decoder:
             else:
                 flag = (package_number == self.last_package_number + 1) and (frame_number == self.last_frame_number)
                 if not flag:
-                    self.warn_info = 'Package number error'
+                    self.warn_info = f'Package number error: ' \
+                                     f'{self.last_frame_number}, {self.last_package_number} -> {frame_number}, {package_number}'
                 else:
                     self.last_package_number = package_number
         return flag

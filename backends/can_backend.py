@@ -24,7 +24,7 @@ class CanBackend:
         try:
             self.can.connect()
             self.active = True
-            threading.Thread(target=self.read_forever, args=(0.0, ), daemon=True).start()
+            threading.Thread(target=self.read_forever, args=(0.005, ), daemon=True).start()
             return True
         except Exception as e:
             print('Failed to connect to CAN device')
@@ -37,10 +37,13 @@ class CanBackend:
     def read_forever(self, interval):
         while self.active:
             start_time = time.time()
-            self.read()
-            elapsed_time = time.time() - start_time
-            sleep_time = max([0, interval - elapsed_time])
-            time.sleep(sleep_time)
+            while True:
+                time_now = time.time()
+                if time_now - start_time < interval:
+                    self.can.communicate()
+                else:
+                    self.read()
+                    start_time = time_now
 
     def read(self):
         try:
@@ -119,8 +122,10 @@ class CanDevice:
             print('调用 VCI_OpenDevice出错\r\n')
 
         # 初始0通道
+        # vci_initconfig = self.VCI_INIT_CONFIG(0x80000000, 0xFFFFFFFF, 0,
+        #                                       1, 0x00, 0x1C, 0)  # 波特率500k，正常模式
         vci_initconfig = self.VCI_INIT_CONFIG(0x80000000, 0xFFFFFFFF, 0,
-                                              1, 0x00, 0x1C, 0)  # 波特率500k，正常模式
+                                              1, 0x00, 0x14, 0)  # 波特率1000k，正常模式
         ret = self.canDLL.VCI_InitCAN(self.VCI_USBCAN2, 0, 0, byref(vci_initconfig))
         if ret == self.STATUS_OK:
             print('调用 VCI_InitCAN1成功\r\n')
@@ -133,7 +138,6 @@ class CanDevice:
         else:
             print('调用 VCI_StartCAN1出错\r\n')
         self.activated = True
-        self.communicate_thread.start()
 
     def disconnect(self):
         # 关闭
@@ -149,8 +153,7 @@ class CanDevice:
         return ret_all
 
     def communicate_forever(self):
-        while self.activated:
-            self.communicate()
+        pass
 
     def communicate(self):
         f = self.canDLL.VCI_Receive(self.VCI_USBCAN2, 0, 0, byref(self.rx_vci_can_obj.ADDR), LEN, 0)
@@ -158,8 +161,9 @@ class CanDevice:
             for i in range(f):
                 ret = list(self.rx_vci_can_obj.STRUCT_ARRAY[i].Data)[:self.rx_vci_can_obj.STRUCT_ARRAY[i].DataLen]
                 self.data_storage.extend(ret)
+                # print(ret)
         else:
-            time.sleep(0.0)
+            time.sleep(0.001)
 
 
 if __name__ == '__main__':
@@ -169,14 +173,23 @@ if __name__ == '__main__':
     sb.start(None)  # 设备区分还没做
     print('start')
     t_last = None
+    COUNT_DOWN = 100
+    count_down = COUNT_DOWN
+    time_last_count_down = time.time()
     while True:
         while True:
             bits, t = sb.get()
             if bits is not None:
-                print(np.max(bits), np.mean(bits))
+                # print(np.max(bits), np.mean(bits))
+                count_down -= 1
+                if count_down == 0:
+                    print(f"帧率{round(COUNT_DOWN / (time.time() - time_last_count_down), 1)}")
+                    count_down = COUNT_DOWN
+                    time_last_count_down = time.time()
                 # print(t)
                 if t_last is not None:
-                    print(t - t_last)
+                    if t - t_last > 1 / 50:
+                        print(t - t_last)
                 t_last = t
             else:
                 break
