@@ -30,6 +30,21 @@ class Filter:
     def filter(self, x):
         return x
 
+    def __mul__(self, other):
+        return _CombinedFilter({'SENSOR_SHAPE': self.SENSOR_SHAPE, 'DATA_TYPE': self.DATA_TYPE},
+                               self, other)
+
+
+class _CombinedFilter(Filter):
+    def __init__(self, sensor_class, this, other, *args, **kwargs):
+        super().__init__(sensor_class, *args, **kwargs)
+        self.filter1 = this
+        self.filter2 = other
+
+    @check_input
+    def filter(self, x):
+        return self.filter2.filter(self.filter1.filter(x))
+
 
 class RCFilter(Filter):
     def __init__(self, sensor_shape, alpha=0.75, *args, **kwargs):
@@ -162,6 +177,23 @@ class BlurFilter(Filter):
         return signal.convolve2d(x, self.kernel, mode='same')
 
 
+class SideFilter(Filter):
+    # 抑制边缘
+    def __init__(self, sensor_class, width):
+        super(SideFilter, self).__init__(sensor_class)
+        self.width = width
+
+    @check_input
+    def filter(self, x):
+        x = x.copy()
+        # 越靠近边缘，衰减越多
+        x[:self.width, :] *= np.linspace(0, 1, self.width)[:, None]
+        x[-self.width:, :] *= np.linspace(1, 0, self.width)[:, None]
+        x[:, :self.width] *= np.linspace(0, 1, self.width)[None, :]
+        x[:, -self.width:] *= np.linspace(1, 0, self.width)[None, :]
+        return x
+
+
 def build_preset_filters(sensor_class):
     str_to_filter = {
         '无': lambda: Filter(sensor_class),
@@ -184,6 +216,7 @@ def build_preset_filters(sensor_class):
         'Median-1s': lambda: MedianFilter(sensor_class, order=20),
         'Average-0.2s': lambda: MeanFilter(sensor_class, order=2),
         'Average-1s': lambda: MeanFilter(sensor_class, order=20),
+        '边缘-4': lambda: SideFilter(sensor_class, 4),
     }
     return str_to_filter
 

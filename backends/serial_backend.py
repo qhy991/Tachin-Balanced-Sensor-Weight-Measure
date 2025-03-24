@@ -6,7 +6,7 @@ from collections import deque
 from backends.decoding import Decoder
 import time
 
-BAUD_RATE = 230400
+BAUD_RATE = 115200
 
 
 class SerialBackend:
@@ -43,6 +43,7 @@ class SerialBackend:
     def read(self):
         try:
             last_message = [int(_) for _ in self.serial.read()]
+            print([hex(_) for _ in last_message])
         except Exception as e:
             self.stop()
             self.err_queue.append(e)
@@ -63,7 +64,7 @@ if __name__ == '__main__':
     import os
     config_array = json.load(open(os.path.join(os.path.dirname(__file__), 'config_array_16.json'), 'rt'))
     sb = SerialBackend(config_array)  # 使用中支持在UsbBackend里存一些数后一起取出。如果发现数据不完整，酌情增加该数值
-    sb.start('COM6')  # 设备区分还没做
+    sb.start('COM4')  # 设备区分还没做
     print('start')
     t_last = None
     while True:

@@ -53,7 +53,7 @@ class Decoder:
                     self.message_cache[offset + HEAD_LENGTH + self.sensor_shape[1] * self.bytes_per_point
                                        :offset + HEAD_LENGTH + CRC_LENGTH + self.sensor_shape[1] * self.bytes_per_point]
                 crc_calculated = self.__calculate_crc(data)
-                if crc_received[0] * 256 + crc_received[1] != crc_calculated:
+                if crc_received[0].astype(np.uint16) * 256 + crc_received[1].astype(np.uint16) != crc_calculated:
                     self.warn_info = 'CRC check failed'
                     flag = False
                 else:
@@ -68,8 +68,9 @@ class Decoder:
                 offset += 1
         self.message_cache = self.message_cache[offset:]
         self.message_cache = self.message_cache[-self.max_cache_length:]
-        # if self.warn_info:
-        #     print(self.warn_info)
+        if self.warn_info:
+            print(self.warn_info)
+            self.warn_info = ''
 
     def __validate_package(self, frame_number, package_number):
         if self.last_frame_number is None:

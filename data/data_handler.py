@@ -27,7 +27,7 @@ class DataHandler:
     ZERO_LEN_REQUIRE = 16
     MAX_IN = 16
 
-    def __init__(self, template_sensor_driver, max_len=1024, curve_on=True):
+    def __init__(self, template_sensor_driver, max_len=64, curve_on=True):
         self.max_len = max_len
         self.driver = template_sensor_driver()  # 传感器驱动
         # 滤波器
@@ -178,7 +178,7 @@ class DataHandler:
                 self.time.append(time_after_begin)
                 if self.curve_on:
                     self.t_tracing.append(time_after_begin)
-                    self.time_ms.append(np.array([time_after_begin * 1e3], dtype='>i2'))  # ms
+                    self.time_ms.append(np.array([(time_after_begin * 1e3) % 10000], dtype='>i2'))  # ms
                     self.value_mid.append(np.median(smoothed_value))
                     self.maximum.append(np.max(smoothed_value))
                     self.tracing.append(np.mean(np.asarray(smoothed_value)[

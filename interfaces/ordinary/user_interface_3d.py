@@ -5,6 +5,7 @@
 LAN = 'chs'
 # LAN = 'en'
 
+import OpenGL_accelerate
 from PyQt5 import QtCore, QtWidgets, QtGui
 import time
 if LAN == "en":
@@ -13,7 +14,6 @@ else:
     from interfaces.ordinary.layout.layout_3d import Ui_Form
 import pyqtgraph
 import OpenGL
-import OpenGL_accelerate
 # 设置使用硬件加速
 OpenGL.ERROR_CHECKING = False
 OpenGL.ERROR_ON_COPY = True
@@ -29,6 +29,7 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
+from data.preprocessing import build_preset_filters
 from backends.usb_driver import LargeUsbSensorDriver
 #
 from config import config, save_config
@@ -181,14 +182,16 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def pre_initialize(self):
         self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
                                                               "E-skin Display" if LAN == "en" else "电子皮肤采集程序"))
-        self.setWindowIcon(QtGui.QIcon("./ordinary/layout/tujian.ico"))
-        logo_path = "./ordinary/resources/logo.png"
+        self.setWindowIcon(QtGui.QIcon("./interfaces/ordinary/layout/tujian.ico"))
+        logo_path = "./interfaces/ordinary/resources/logo.png"
         self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
         self.label_logo.setScaledContents(True)
         self.initialize_image()
         self.initialize_buttons()
         self.initialize_others()
         self.set_enable_state()
+        preset_filters = build_preset_filters(self.data_handler.driver)
+        self.data_handler.filter_frame = preset_filters['并联抵消-中']() * preset_filters['边缘-4']()
         self.__apply_y_lim()
 
     def create_3d_plot(self, fig_widget: QtWidgets.QWidget):
@@ -292,12 +295,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.button_save_to.setText("End acquisition" if LAN == "en" else "结束采集")
         else:
             self.button_save_to.setText("Acquire to file..." if LAN == "en" else "采集到...")
-        if self.data_handler.driver.__class__.__name__ in \
-                ['FakeSensorDriver', 'SmallSensorDriver', 'SocketClient', 'LargeSensorDriver']:
-            self.com_port.setEnabled(not self.is_running)
-        else:
-            self.com_port.setEnabled(False)
-            self.com_port.setText("-")
+        self.com_port.setEnabled(not self.is_running)
 
     def __set_filter(self):
         # self.data_handler.set_filter("无", self.combo_filter_time.currentText())
@@ -305,7 +303,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.dump_config()
 
     def __set_interpolate_and_blur(self):
-        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=2)
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=3)
         self.dump_config()
 
     def __set_calibrator(self):

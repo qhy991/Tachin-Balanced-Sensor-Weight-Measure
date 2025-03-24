@@ -14,7 +14,7 @@ class Interpolation:
 
     def smooth(self, data):
         if isinstance(data, np.ndarray):
-            data = data.astype(np.float)
+            data = data.astype(float)
             if self.blur > 0:
                 # data = median_filter(data, size=2 * int(self.blur) + 1)
                 data = gaussian_filter(data, sigma=self.blur)

@@ -180,16 +180,17 @@ if __name__ == '__main__':
         while True:
             bits, t = sb.get()
             if bits is not None:
-                # print(np.max(bits), np.mean(bits))
+                print(np.max(bits), np.mean(bits))
                 count_down -= 1
                 if count_down == 0:
-                    print(f"帧率{round(COUNT_DOWN / (time.time() - time_last_count_down), 1)}")
+                    # print(f"帧率{round(COUNT_DOWN / (time.time() - time_last_count_down), 1)}")
                     count_down = COUNT_DOWN
                     time_last_count_down = time.time()
                 # print(t)
                 if t_last is not None:
                     if t - t_last > 1 / 50:
-                        print(t - t_last)
+                        # print(t - t_last)
+                        pass
                 t_last = t
             else:
                 break
