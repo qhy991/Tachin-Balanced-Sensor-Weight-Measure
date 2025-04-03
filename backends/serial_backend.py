@@ -5,15 +5,18 @@ import threading
 from collections import deque
 from backends.decoding import Decoder
 import time
+import os
+import json
 
-BAUD_RATE = 115200
+baud_rate = json.load(open(os.path.dirname(__file__) + '/config_serial.json', 'rt'))['baud_rate']
+print(f"Baud rate: {baud_rate}")
 
 
 class SerialBackend:
     def __init__(self, config_array):
         # 在子线程中读取CAN协议传来的数据。主线程会将数据取走
         # CAN卡对连续读数要求较高
-        self.serial = serial.Serial(None, BAUD_RATE, timeout=None)
+        self.serial = serial.Serial(None, baud_rate, timeout=None)
         # 解包
         self.decoder = Decoder(config_array)
         self.err_queue = deque(maxlen=1)

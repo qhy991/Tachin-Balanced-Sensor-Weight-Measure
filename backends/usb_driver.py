@@ -60,3 +60,12 @@ class ZWUsbSensorDriver(UsbSensorDriver):
                                                 config_array)
 
 
+class ZYUsbSensorDriver(UsbSensorDriver):
+    SENSOR_SHAPE = (64, 64)
+
+    def __init__(self):
+        config_array = json.load(open(os.path.dirname(__file__) + '/config_array_zy.json', 'rt'))
+        super(ZYUsbSensorDriver, self).__init__(self.SENSOR_SHAPE,
+                                                config_array)
+
+

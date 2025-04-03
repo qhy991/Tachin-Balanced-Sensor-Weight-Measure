@@ -8,13 +8,19 @@ config = json.load(
 
 # 以下是可选配置
 
-try:
-    config_mapping = json.load(
-        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'interfaces/hand_shape/config_mapping_hand.json'), 'rt',
-             encoding='utf-8'),
-    )
-except FileNotFoundError:
-    config_mapping = None
+
+def get_config_mapping(suffix):
+
+    try:
+        config_mapping = json.load(
+            open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              f'interfaces/hand_shape/config_mapping_hand_{suffix}.json'), 'rt',
+                 encoding='utf-8'),
+        )
+    except FileNotFoundError:
+        config_mapping = None
+
+    return config_mapping
 
 try:
     config_mapping_seat = json.load(

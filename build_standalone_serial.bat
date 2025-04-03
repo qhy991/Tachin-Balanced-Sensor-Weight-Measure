@@ -10,4 +10,5 @@ mkdir dist\interface_serial_sensor\interfaces\ordinary\resources
 copy interfaces\ordinary\resources\logo.png dist\interface_large_sensor\interfaces\ordinary\resources\logo.png
 mkdir dist\interface_serial_sensor\_internal\backends
 copy backends\config_array_16.json dist\interface_serial_sensor\_internal\backends\config_array_16.json
+copy backends\config_serial.json dist\interface_serial_sensor\_internal\backends\config_serial.json
 pause

@@ -18,26 +18,16 @@ import traceback
 import numpy as np
 from data.data_handler import DataHandler
 from PIL import Image
-from config import config, save_config, config_mapping
+from config import config, save_config, get_config_mapping
 from collections import deque
 from usb.core import USBError
-from multiple_skins.tactile_spliting import TactileDriverWithPreprocessing
+from multiple_skins.tactile_spliting import get_split_driver_class
 from data.interpolation import Interpolation
 from data.preprocessing import MedianFilter
 from utils.performance_monitor import Ticker
 from PyQt5.QtGui import QWheelEvent
 from pyqtgraph.widgets.RawImageWidget import RawImageWidget
 
-cmap = pyqtgraph.ColorMap(np.linspace(0, 1, 17), (np.array(config_mapping['color_map']) * 255).astype(int))
-legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
-
-STANDARD_PEN = pyqtgraph.mkPen('k')
-LINE_STYLE = {'pen': pyqtgraph.mkPen('k'), 'symbol': 'o', 'symbolBrush': 'k', 'symbolSize': 4}
-
-RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources')
-pixel_mapping = config_mapping['pixel_mapping']
-range_mapping = config_mapping['range_mapping']
-is_left_hand = config_mapping['is_left_hand']
 
 STR_CONNECTED = "Connected" if LAN == "en" else "已连接"
 STR_DISCONNECTED = "Disconnected" if LAN == "en" else "未连接"
@@ -48,27 +38,25 @@ MINIMUM_Y_LIM = 0
 MAXIMUM_Y_LIM = 4
 TRIGGER_TIME_RECORD_LENGTH = 10
 
+RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources')
+LINE_STYLE = {'pen': pyqtgraph.mkPen('k'), 'symbol': 'o', 'symbolBrush': 'k', 'symbolSize': 4}
+legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
+STANDARD_PEN = pyqtgraph.mkPen('k')
+
 
 class HandPlotManager:
 
     def __init__(self, fig_widget_2d: pyqtgraph.widgets.RawImageWidget.RawImageWidget,
                  fig_widget_1d: pyqtgraph.GraphicsLayoutWidget,
                  data_handler: DataHandler,
+                 config_mapping, image,
                  downsample=1):
-        # self.img_view = pyqtgraph.ImageView()
-        # self.img_view.ui.histogram.hide()
-        # self.img_view.ui.menuBtn.hide()
-        # self.img_view.ui.roiBtn.hide()
-        # fig_widget_2d.setBackground(0.95)
-        # layout = QtWidgets.QGridLayout()
-        # layout.setSpacing(0)
-        # layout.setContentsMargins(0, 0, 0, 0)
-        # layout.addWidget(self.img_view, 0, 0)
-        # fig_widget_2d.setLayout(layout)
-        # self.img_view.getView().setBackgroundColor(0.95)
-        # self.img_view.getView().setMouseEnabled(False, False)
-        # self.img_view.getView().setMenuEnabled(False)
-        # self.img_view.adjustSize()
+
+        self.cmap = pyqtgraph.ColorMap(np.linspace(0, 1, 17), (np.array(config_mapping['color_map']) * 255).astype(int))
+        pixel_mapping = config_mapping['pixel_mapping']
+        range_mapping = config_mapping['range_mapping']
+        self.is_left_hand = config_mapping['is_left_hand']
+
         self.img_view = fig_widget_2d
 
         self.log_y_lim = (config['y_lim'][0], config['y_lim'][1])
@@ -77,7 +65,7 @@ class HandPlotManager:
         self.dd = data_handler
         # 加载底图
         self.downsample = downsample
-        self.original_base_image = Image.open(os.path.join(RESOURCE_FOLDER, 'hand.png')).convert('RGBA')
+        self.original_base_image = image
         self.original_base_image = self.original_base_image.resize((self.original_base_image.width // downsample,
                                                   self.original_base_image.height // downsample),
                                                  resample=Image.BILINEAR)
@@ -86,7 +74,7 @@ class HandPlotManager:
         self.processing_image = self.base_image.copy()
         self.current_image = np.array(self.processing_image).transpose((1, 0, 2))
         img = np.array(self.current_image).transpose((1, 0, 2))
-        if is_left_hand:
+        if self.is_left_hand:
             img = img[::-1, :, :]
         self.img_view.setImage(img)
         # mapping_onto_image
@@ -189,7 +177,8 @@ class HandPlotManager:
                         mask=img.split()[-1])
         img = img_empty
         self.base_image = img.copy()
-        self.current_image = np.array(img).swapaxes(0, 1)[::-1, :, :] if is_left_hand else np.array(img).swapaxes(0, 1)
+        self.current_image = np.array(img).swapaxes(0, 1)[::-1, :, :]\
+            if self.is_left_hand else np.array(img).swapaxes(0, 1)
         self.plot()
 
     def reset_image(self):
@@ -219,7 +208,7 @@ class HandPlotManager:
             data = Interpolation(2, 1.0, data.shape).smooth(data * rect[3])
             data = np.log(np.maximum(data, 1e-6)) / np.log(10)
             data = np.clip((data + self.log_y_lim[1]) / (self.log_y_lim[1] - self.log_y_lim[0]), 0., 1.)
-            img_original = Image.fromarray((cmap.map(data.T, mode=float) * 255.).astype(np.uint8),
+            img_original = Image.fromarray((self.cmap.map(data.T, mode=float) * 255.).astype(np.uint8),
                                            mode='RGBA')
             img_scaled = img_original.resize((int(new_shape[0] * self.resize_transform[0]),
                                               int(new_shape[1] * self.resize_transform[1])),
@@ -276,7 +265,7 @@ class HandPlotManager:
             self.time.append(time_now)
             self.processing_image.putalpha(self.base_image.split()[-1])
             img = np.array(self.processing_image).transpose((1, 0, 2))
-            self.current_image = img[::-1, :, :] if is_left_hand else img
+            self.current_image = img[::-1, :, :] if self.is_left_hand else img
             # 在self.lines_view上绘制每个分区的均值
 
     def plot(self):
@@ -294,21 +283,29 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     TRIGGER_TIME = config.get("trigger_time")
 
-    COLORS = config_mapping.get("color_map")
-
-    def __init__(self):
+    def __init__(self, mode):
         super().__init__()
         self.setupUi(self)
         # 重定向提示
         sys.excepthook = self.catch_exceptions
         #
-        self.data_handler = DataHandler(TactileDriverWithPreprocessing, max_len=256)
+        if mode == 'zw':
+            from backends.usb_driver import ZWUsbSensorDriver as SensorDriver
+        elif mode == 'zy':
+            from backends.usb_driver import ZYUsbSensorDriver as SensorDriver
+        else:
+            raise Exception("Invalid mode")
+        config_mapping = get_config_mapping(mode)
+        self.data_handler = DataHandler(get_split_driver_class(SensorDriver, config_mapping), max_len=256)
         self.data_handler.set_filter(filter_name_frame="无", filter_name_time="中值-0.2s")
         self.is_running = False
         #
+        base_image = Image.open(os.path.join(RESOURCE_FOLDER, f'hand_{mode}.png')).convert('RGBA')
         self.hand_plot_manager = HandPlotManager(fig_widget_2d=self.fig_image,
                                                  fig_widget_1d=self.fig_lines,
                                                  data_handler=self.data_handler,
+                                                 config_mapping=config_mapping,
+                                                 image=base_image,
                                                  downsample=2)
         self.pre_initialize()
         #
@@ -415,9 +412,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.exit()
 
 
-def start():
+def start(mode):
     app = QtWidgets.QApplication(sys.argv)
-    w = Window()
+    w = Window(mode)
     w.show()
     w.trigger()
     sys.exit(app.exec_())

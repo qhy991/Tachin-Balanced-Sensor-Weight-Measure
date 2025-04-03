@@ -20,10 +20,6 @@ import sys
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from backends.usb_driver import LargeUsbSensorDriver
-from backends.serial_driver import Serial16SensorDriver
-from backends.can_driver import Can16SensorDriver
-from server.socket_client import SocketClient
 #
 from config import config, save_config
 
@@ -83,22 +79,22 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.line_tracing = self.create_a_line(self.fig_2)
         self.plot = self.create_an_image(self.fig_image)
         if mode == 'standard':
+            from backends.usb_driver import LargeUsbSensorDriver
             self.data_handler = DataHandler(LargeUsbSensorDriver)
             self.scaling = log
             self.__set_using_calibration(False)
         elif mode == 'socket':
+            from server.socket_client import SocketClient
             self.data_handler = DataHandler(SocketClient)
             self.scaling = log
             self.__set_using_calibration(False)
-        elif mode == 'reduced':
-            self.data_handler = DataHandler(LargeSensorDriverReduced)
-            self.scaling = lambda x: x
-            self.__set_using_calibration(True)
         elif mode == 'serial':
+            from backends.serial_driver import Serial16SensorDriver
             self.data_handler = DataHandler(Serial16SensorDriver)
             self.scaling = log
             self.__set_using_calibration(False)
         elif mode == 'can':
+            from backends.can_driver import Can16SensorDriver
             self.data_handler = DataHandler(Can16SensorDriver)
             self.scaling = log
             self.__set_using_calibration(False)

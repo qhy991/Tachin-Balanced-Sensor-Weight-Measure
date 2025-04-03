@@ -1,9 +1,7 @@
-from backends.usb_driver import ZWUsbSensorDriver as SensorDriver
 import copy
 
 import numpy as np
 import os
-from config import config_mapping
 MAX_LEN = 64
 MIN_LEN = 32
 
@@ -48,24 +46,6 @@ class SplitDataDict:
 
     def apply_filter_for_each(self, filters_obj: dict, **kwargs):
         self.unit_filter_objs.append(filters_obj, **kwargs)
-
-    def scaled(self, r_min, r_max, log_scale=False):
-        value = np.maximum(self.full_data, 0) * SensorDriver.SCALE
-        if log_scale:
-            value = ((np.log(value) - np.log(r_min)) /
-                     (np.log(r_max) - np.log(r_min))
-                     * 255) \
-                .astype(int)
-        else:
-            value = ((value - r_min) /
-                     (r_max - r_min)
-                     * 255) \
-                .astype(int)
-        value[value < 0] = 0
-        value[value > 255] = 255
-        ret = SplitDataDict(value, self.range_mapping)
-        ret.unit_filter_objs = self.unit_filter_objs
-        return ret
 
     def __getitem__(self, idx):
         if idx in self.range_mapping.keys():
@@ -155,33 +135,37 @@ class SplitDataDict:
         return self.full_data >= other
 
 
-class TactileDriverWithPreprocessing(SensorDriver):
-    RANGE_MAPPING = {int(k):
-                     [(slice(v[0], v[0] + v[5]),
-                       slice(v[1], v[1] + v[6])),
-                      bool(v[2]), bool(v[3]), bool(v[4]),
-                      float(v[7]),
-                      float(v[8])]
-                     for k, v in config_mapping['range_mapping'].items()}
+def get_split_driver_class(base_driver_class, config_mapping):
 
-    def __init__(self):
-        super().__init__()
+    class TactileDriverWithPreprocessing(base_driver_class):
+        RANGE_MAPPING = {int(k):
+                         [(slice(v[0], v[0] + v[5]),
+                           slice(v[1], v[1] + v[6])),
+                          bool(v[2]), bool(v[3]), bool(v[4]),
+                          float(v[7]),
+                          float(v[8])]
+                         for k, v in config_mapping['range_mapping'].items()}
 
-    def connect(self, port=None):
-        flag = super().connect(port)
-        return flag
+        def __init__(self):
+            super().__init__()
 
-    def disconnect(self):
-        return super().disconnect()
+        def connect(self, port=None):
+            flag = super().connect(port)
+            return flag
 
-    def get(self):
-        data_fingers, t_last = None, None
-        while True:
-            data, t = super().get()
-            if data is not None:
-                data_fingers = SplitDataDict(data, self.RANGE_MAPPING)
-                t_last = t
-            else:
-                break
-        # 总是只返回最新的，但所有数据都必须过一遍预处理器
-        return data_fingers, t_last
+        def disconnect(self):
+            return super().disconnect()
+
+        def get(self):
+            data_fingers, t_last = None, None
+            while True:
+                data, t = super().get()
+                if data is not None:
+                    data_fingers = SplitDataDict(data, self.RANGE_MAPPING)
+                    t_last = t
+                else:
+                    break
+            # 总是只返回最新的，但所有数据都必须过一遍预处理器
+            return data_fingers, t_last
+
+    return TactileDriverWithPreprocessing
