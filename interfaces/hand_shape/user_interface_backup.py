@@ -17,7 +17,7 @@ import os
 import traceback
 import numpy as np
 from data.data_handler import DataHandler
-from PIL import Image, ImageDraw
+from PIL import Image
 from config import config, save_config, get_config_mapping
 from collections import deque
 from usb.core import USBError
@@ -27,7 +27,7 @@ from data.preprocessing import MedianFilter
 from utils.performance_monitor import Ticker
 from PyQt5.QtGui import QWheelEvent
 from pyqtgraph.widgets.RawImageWidget import RawImageWidget
-from interfaces.hand_shape.feature_extractor import FingerFeatureExtractor
+
 
 STR_CONNECTED = "Connected" if LAN == "en" else "已连接"
 STR_DISCONNECTED = "Disconnected" if LAN == "en" else "未连接"
@@ -56,7 +56,6 @@ class HandPlotManager:
         pixel_mapping = config_mapping['pixel_mapping']
         range_mapping = config_mapping['range_mapping']
         self.is_left_hand = config_mapping['is_left_hand']
-        self.arrow_offset = config_mapping['arrow_offset']
 
         self.img_view = fig_widget_2d
 
@@ -88,21 +87,18 @@ class HandPlotManager:
                      self.make_mask((range_mapping[k][6], range_mapping[k][5])
                                     if range_mapping[k][4]
                                     else (range_mapping[k][5], range_mapping[k][6]),
-                                    1.),
-                     int(k)]
+                                    1.)]
             for k in range_mapping.keys()
         }
         self.proj_funcs = {idx: self.make_projection_function(rect) for idx, rect in rects.items()}
         # 曲线图
         ax: pyqtgraph.PlotItem = fig_widget_1d.addPlot()
-        # ax.setLabel(axis='left', text='Resistance (min) (kΩ)' if LAN == "en" else '电阻（最小值） (kΩ)')
-        ax.setLabel(axis='left', text='Contact strength' if LAN == "en" else '接触强度')
+        ax.setLabel(axis='left', text='Resistance (min) (kΩ)' if LAN == "en" else '电阻（最小值） (kΩ)')
         ax.getAxis('left').enableAutoSIPrefix(False)
         ax.setLabel(axis='bottom', text='Time (s)' if LAN == "en" else '时间 (s)')
-        # ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
-        #     [f'{10 ** (-_): .1f}' for _ in values]
-        # ax.getViewBox().setYRange(-self.log_y_lim[1], -self.log_y_lim[0])
-        ax.getViewBox().setYRange(0, 256)
+        ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
+            [f'{10 ** (-_): .1f}' for _ in values]
+        ax.getViewBox().setYRange(-self.log_y_lim[1], -self.log_y_lim[0])
         fig_widget_1d.setBackground('w')
         ax.getViewBox().setBackgroundColor([255, 255, 255])
         ax.getAxis('bottom').setPen(STANDARD_PEN)
@@ -122,8 +118,6 @@ class HandPlotManager:
                         for idx in range_mapping.keys()}
         max_len = self.dd.max_len
         self.region_max = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
-        self.region_x_diff = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
-        self.region_y_diff = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
         self.time = deque(maxlen=max_len)
         #
         self.img_view.wheelEvent = self.__on_mouse_wheel
@@ -134,9 +128,6 @@ class HandPlotManager:
         #
         self.img_view.resizeEvent = self.resize_event
         self.resize_transform = []  # 包括了缩放的比例和偏移量
-        # 计算用
-        self.finger_feature_extractors = {int(k): FingerFeatureExtractor(6, 4, 0.995, 10., 1.0)
-                                          for k in config_mapping['range_mapping'].keys()}
 
     @staticmethod
     def make_mask(shape, scale=1.):
@@ -198,8 +189,8 @@ class HandPlotManager:
         # 计算边向量
         base_point = rect[0]
         x_delta = (rect[1][0] - rect[0][0], rect[1][1] - rect[0][1])
-        # y_rate = (rect[3].shape[1] / rect[3].shape[0]) ** -1
-        y_rate = rect[3].shape[1] / rect[3].shape[0]
+        # y_rate = (rect[-1].shape[1] / rect[-1].shape[0]) ** -1
+        y_rate = rect[-1].shape[1] / rect[-1].shape[0]
         y_delta = (-x_delta[1] * y_rate,
                    x_delta[0] * y_rate)
         if not rect[2]:
@@ -229,35 +220,6 @@ class HandPlotManager:
                                          int(center[1] * self.resize_transform[1] - img_rotated.height // 2 + self.resize_transform[3])),
                                         mask=img_rotated.split()[-1])
             pass
-            # 0304新增
-            # new code to draw the arrow
-            idx = rect[4]
-            offset_x = self.arrow_offset[str(idx)][0] * self.resize_transform[0]
-            offset_y = self.arrow_offset[str(idx)][1] * self.resize_transform[1]
-            if self.region_x_diff[idx] and self.region_y_diff[idx]:
-                x_diff = self.region_x_diff[idx][-1] * self.resize_transform[0] * 0.5
-                y_diff = self.region_y_diff[idx][-1] * self.resize_transform[1] * 0.5
-                arrow_length = np.sqrt(x_diff ** 2 + y_diff ** 2)
-                arrow_angle = np.arctan2(y_diff, x_diff)
-                if int(arrow_length) > 0:
-                    print(f"idx: {idx}, arrow_length: {int(arrow_length)}, angle: {arrow_angle}")
-                arrow_end_x = center[0] * self.resize_transform[0] + offset_x + arrow_length * np.cos(arrow_angle) + self.resize_transform[2]
-                arrow_end_y = center[1] * self.resize_transform[1] + offset_y + arrow_length * np.sin(arrow_angle) + self.resize_transform[3]
-
-                draw = ImageDraw.Draw(self.processing_image)
-                draw.line([(center[0] * self.resize_transform[0] + offset_x + self.resize_transform[2],
-                            center[1] * self.resize_transform[1] + offset_y + self.resize_transform[3]),
-                           (arrow_end_x,
-                            arrow_end_y)],
-                          fill=(255, 0, 0, 255), width=int(1 * (self.resize_transform[0] + self.resize_transform[1]) + 1))
-                if arrow_length > 2:
-                    arrow_size = int(3 * (self.resize_transform[0] + self.resize_transform[1]) + 1)
-                    draw.polygon([(arrow_end_x, arrow_end_y),
-                                  (arrow_end_x - arrow_size * np.cos(arrow_angle - np.pi / 6),
-                                   arrow_end_y - arrow_size * np.sin(arrow_angle - np.pi / 6)),
-                                  (arrow_end_x - arrow_size * np.cos(arrow_angle + np.pi / 6),
-                                   arrow_end_y - arrow_size * np.sin(arrow_angle + np.pi / 6))],
-                                 fill=(255, 0, 0, 255),)
 
         return projection_function
 
@@ -297,16 +259,8 @@ class HandPlotManager:
             self.reset_image()
             for idx, data in data_fingers.items():
                 self.proj_funcs[idx](data)
-                # 0304前旧版本
-                # max_value = np.max(data)
-                # max_value = np.log(np.maximum(max_value, 1e-6)) / np.log(10.)
-                # 新的
-                max_value = self.finger_feature_extractors[idx](data)['contact_strength']
-                x_diff = self.finger_feature_extractors[idx](data)['center_x_diff']
-                y_diff = self.finger_feature_extractors[idx](data)['center_y_diff']
-                self.region_max[idx].append(max_value)
-                self.region_x_diff[idx].append(x_diff)
-                self.region_y_diff[idx].append(y_diff)
+                max_value = np.max(data)
+                self.region_max[idx].append(np.log(np.maximum(max_value, 1e-6)) / np.log(10.))
             self.lock.release()
             self.time.append(time_now)
             self.processing_image.putalpha(self.base_image.split()[-1])
