@@ -83,6 +83,11 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.data_handler = DataHandler(LargeUsbSensorDriver)
             self.scaling = log
             self.__set_using_calibration(False)
+        elif mode == 'zw':
+            from backends.usb_driver import ZWUsbSensorDriver
+            self.data_handler = DataHandler(ZWUsbSensorDriver)
+            self.scaling = log
+            self.__set_using_calibration(False)
         elif mode == 'socket':
             from server.socket_client import SocketClient
             self.data_handler = DataHandler(SocketClient)

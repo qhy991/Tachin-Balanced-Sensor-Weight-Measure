@@ -46,7 +46,7 @@ class LargeUsbSensorDriver(UsbSensorDriver):
     SENSOR_SHAPE = (64, 64)
 
     def __init__(self):
-        config_array = json.load(open(os.path.dirname(__file__) + '/config_array_64.json', 'rt'))
+        config_array = json.load(open(os.path.dirname(__file__) + '/config_array_zv.json', 'rt'))
         super(LargeUsbSensorDriver, self).__init__(self.SENSOR_SHAPE, config_array)
 
 
@@ -66,6 +66,24 @@ class ZYUsbSensorDriver(UsbSensorDriver):
     def __init__(self):
         config_array = json.load(open(os.path.dirname(__file__) + '/config_array_zy.json', 'rt'))
         super(ZYUsbSensorDriver, self).__init__(self.SENSOR_SHAPE,
+                                                config_array)
+
+
+class ZVUsbSensorDriver(UsbSensorDriver):
+    SENSOR_SHAPE = (64, 64)
+
+    def __init__(self):
+        config_array = json.load(open(os.path.dirname(__file__) + '/config_array_zv.json', 'rt'))
+        super(ZVUsbSensorDriver, self).__init__(self.SENSOR_SHAPE,
+                                                config_array)
+
+
+class GLUsbSensorDriver(UsbSensorDriver):
+    SENSOR_SHAPE = (64, 64)
+
+    def __init__(self):
+        config_array = json.load(open(os.path.dirname(__file__) + '/config_array_gl.json', 'rt'))
+        super(GLUsbSensorDriver, self).__init__(self.SENSOR_SHAPE,
                                                 config_array)
 
 

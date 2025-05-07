@@ -47,16 +47,30 @@ class _CombinedFilter(Filter):
 
 
 class RCFilter(Filter):
-    def __init__(self, sensor_shape, alpha=0.75, *args, **kwargs):
-        super(RCFilter, self).__init__(sensor_shape)
+    def __init__(self, sensor_class, alpha=0.75, *args, **kwargs):
+        super(RCFilter, self).__init__(sensor_class)
         self.alpha = alpha
         self.y = 0
 
     @check_input
     def filter(self, x):
         self.y = self.alpha * x + (1 - self.alpha) * self.y
-        # 看看阶数
         return self.y
+
+
+class RCFilterHP(Filter):
+    def __init__(self, sensor_class, alpha=0.75, *args, **kwargs):
+        super(RCFilterHP, self).__init__(sensor_class)
+        self.alpha = alpha
+        self.y_low = 0  # 存储低通滤波状态
+
+    @check_input
+    def filter(self, x):
+        # 更新低通滤波值
+        self.y_low = self.alpha * x + (1 - self.alpha) * self.y_low
+        # 高通 = 原始信号 - 低通成分
+        y_high = x - self.y_low
+        return y_high
 
 
 class RCFilterOneSide(Filter):

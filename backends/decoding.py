@@ -12,6 +12,9 @@ CRC_LENGTH = 2
 
 
 class Decoder:
+
+    MINIMUM_INTERVAL = 0.01
+
     def __init__(self, config_array):
         self.row_array = config_array['row_array']
         self.column_array = config_array['column_array']
@@ -122,11 +125,12 @@ class Decoder:
         time_now = time.time()
         if self.last_finish_time > 0:
             self.last_interval = time_now - self.last_finish_time
-        self.last_finish_time = time_now
-        data = sum([(_.astype(np.int8) if bit == 0 else _).astype(np.int16)
-                    * (2 ** (8 * (self.bytes_per_point - bit - 1)))
-                    for bit, _ in enumerate(self.finished_frame)]).reshape(self.sensor_shape)
-        self.buffer.append((data, self.last_finish_time))
+        if time_now - self.last_finish_time >= self.MINIMUM_INTERVAL:
+            self.last_finish_time = time_now
+            data = sum([(_.astype(np.int8) if bit == 0 else _).astype(np.int16)
+                        * (2 ** (8 * (self.bytes_per_point - bit - 1)))
+                        for bit, _ in enumerate(self.finished_frame)]).reshape(self.sensor_shape)
+            self.buffer.append((data, self.last_finish_time))
 
     def __abort_frame(self):
         for bit in range(self.bytes_per_point):

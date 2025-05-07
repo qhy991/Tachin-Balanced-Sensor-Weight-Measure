@@ -14,7 +14,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Form(object):
     def setupUi(self, Form):
         Form.setObjectName("Form")
-        Form.resize(1252, 650)
+        Form.resize(1527, 834)
         self.gridLayout = QtWidgets.QGridLayout(Form)
         self.gridLayout.setObjectName("gridLayout")
         self.horizontalLayout = QtWidgets.QHBoxLayout()
@@ -138,6 +138,6 @@ class Ui_Form(object):
         self.button_save_to.setText(_translate("Form", "采集到..."))
         self.button_set_zero.setText(_translate("Form", "零点修正"))
         self.button_abandon_zero.setText(_translate("Form", "去除修正"))
-        self.label_fixed.setText(_translate("Form", "手掌电子皮肤显示程序V1.4  途见科技（北京）有限公司"))
+        self.label_fixed.setText(_translate("Form", "手掌电子皮肤显示程序V1.5  途见科技（北京）有限公司"))
 from pyqtgraph import GraphicsLayoutWidget
 from pyqtgraph.widgets.RawImageWidget import RawImageWidget

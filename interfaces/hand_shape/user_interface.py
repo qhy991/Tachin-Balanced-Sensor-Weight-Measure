@@ -23,7 +23,7 @@ from collections import deque
 from usb.core import USBError
 from multiple_skins.tactile_spliting import get_split_driver_class
 from data.interpolation import Interpolation
-from data.preprocessing import MedianFilter
+from data.preprocessing import Filter, MedianFilter, RCFilterHP
 from utils.performance_monitor import Ticker
 from PyQt5.QtGui import QWheelEvent
 from pyqtgraph.widgets.RawImageWidget import RawImageWidget
@@ -56,7 +56,7 @@ class HandPlotManager:
         pixel_mapping = config_mapping['pixel_mapping']
         range_mapping = config_mapping['range_mapping']
         self.is_left_hand = config_mapping['is_left_hand']
-        self.arrow_offset = config_mapping['arrow_offset']
+        self.arrow_offset = config_mapping.get('arrow_offset', None)
 
         self.img_view = fig_widget_2d
 
@@ -112,7 +112,8 @@ class HandPlotManager:
         ax.getViewBox().setMouseEnabled(x=False, y=False)
         ax.getViewBox().setMenuEnabled(False)
         ax.hideButtons()
-        ax.addLegend()
+        # 图例每行3个
+        ax.addLegend(colCount=3)
         self.ax = ax
         self.lines = {int(idx): ax.plot(pen=pyqtgraph.mkPen(legend_color(idx), width=2),
                                         name=config_mapping['names'][idx])
@@ -135,8 +136,17 @@ class HandPlotManager:
         self.img_view.resizeEvent = self.resize_event
         self.resize_transform = []  # 包括了缩放的比例和偏移量
         # 计算用
-        self.finger_feature_extractors = {int(k): FingerFeatureExtractor(6, 4, 0.995, 10., 1.0)
+        self.finger_feature_extractors = {int(k): FingerFeatureExtractor(15, 4, 0.995, 10., 1.0)
                                           for k in config_mapping['range_mapping'].keys()}
+
+    def clear(self):
+        with self.lock:
+            self.processing_image = self.base_image.copy()
+            for idx in self.lines.keys():
+                self.region_max[idx].clear()
+                self.region_x_diff[idx].clear()
+                self.region_y_diff[idx].clear()
+            self.time.clear()
 
     @staticmethod
     def make_mask(shape, scale=1.):
@@ -231,37 +241,37 @@ class HandPlotManager:
             pass
             # 0304新增
             # new code to draw the arrow
-            idx = rect[4]
-            offset_x = self.arrow_offset[str(idx)][0] * self.resize_transform[0]
-            offset_y = self.arrow_offset[str(idx)][1] * self.resize_transform[1]
-            if self.region_x_diff[idx] and self.region_y_diff[idx]:
-                x_diff = self.region_x_diff[idx][-1] * self.resize_transform[0] * 0.5
-                y_diff = self.region_y_diff[idx][-1] * self.resize_transform[1] * 0.5
-                arrow_length = np.sqrt(x_diff ** 2 + y_diff ** 2)
-                arrow_angle = np.arctan2(y_diff, x_diff)
-                if int(arrow_length) > 0:
-                    print(f"idx: {idx}, arrow_length: {int(arrow_length)}, angle: {arrow_angle}")
-                arrow_end_x = center[0] * self.resize_transform[0] + offset_x + arrow_length * np.cos(arrow_angle) + self.resize_transform[2]
-                arrow_end_y = center[1] * self.resize_transform[1] + offset_y + arrow_length * np.sin(arrow_angle) + self.resize_transform[3]
+            if self.arrow_offset is not None:
+                idx = rect[4]
+                offset_x = self.arrow_offset[str(idx)][0] * self.resize_transform[0]
+                offset_y = self.arrow_offset[str(idx)][1] * self.resize_transform[1]
+                if self.region_x_diff[idx] and self.region_y_diff[idx]:
+                    x_diff = self.region_x_diff[idx][-1] * self.resize_transform[0] * 0.5
+                    y_diff = self.region_y_diff[idx][-1] * self.resize_transform[1] * 0.5
+                    arrow_length = np.sqrt(x_diff ** 2 + y_diff ** 2)
+                    arrow_angle = np.arctan2(y_diff, x_diff)
+                    arrow_end_x = center[0] * self.resize_transform[0] + offset_x + arrow_length * np.cos(arrow_angle) + self.resize_transform[2]
+                    arrow_end_y = center[1] * self.resize_transform[1] + offset_y + arrow_length * np.sin(arrow_angle) + self.resize_transform[3]
 
-                draw = ImageDraw.Draw(self.processing_image)
-                draw.line([(center[0] * self.resize_transform[0] + offset_x + self.resize_transform[2],
-                            center[1] * self.resize_transform[1] + offset_y + self.resize_transform[3]),
-                           (arrow_end_x,
-                            arrow_end_y)],
-                          fill=(255, 0, 0, 255), width=int(1 * (self.resize_transform[0] + self.resize_transform[1]) + 1))
-                if arrow_length > 2:
-                    arrow_size = int(3 * (self.resize_transform[0] + self.resize_transform[1]) + 1)
-                    draw.polygon([(arrow_end_x, arrow_end_y),
-                                  (arrow_end_x - arrow_size * np.cos(arrow_angle - np.pi / 6),
-                                   arrow_end_y - arrow_size * np.sin(arrow_angle - np.pi / 6)),
-                                  (arrow_end_x - arrow_size * np.cos(arrow_angle + np.pi / 6),
-                                   arrow_end_y - arrow_size * np.sin(arrow_angle + np.pi / 6))],
-                                 fill=(255, 0, 0, 255),)
+                    draw = ImageDraw.Draw(self.processing_image)
+                    draw.line([(center[0] * self.resize_transform[0] + offset_x + self.resize_transform[2],
+                                center[1] * self.resize_transform[1] + offset_y + self.resize_transform[3]),
+                               (arrow_end_x,
+                                arrow_end_y)],
+                              fill=(255, 0, 0, 255), width=int(1 * (self.resize_transform[0] + self.resize_transform[1]) + 1))
+                    if arrow_length > 2:
+                        arrow_size = int(3 * (self.resize_transform[0] + self.resize_transform[1]) + 1)
+                        draw.polygon([(arrow_end_x, arrow_end_y),
+                                      (arrow_end_x - arrow_size * np.cos(arrow_angle - np.pi / 6),
+                                       arrow_end_y - arrow_size * np.sin(arrow_angle - np.pi / 6)),
+                                      (arrow_end_x - arrow_size * np.cos(arrow_angle + np.pi / 6),
+                                       arrow_end_y - arrow_size * np.sin(arrow_angle + np.pi / 6))],
+                                     fill=(255, 0, 0, 255),)
 
         return projection_function
 
     def __on_mouse_wheel(self, event: QWheelEvent):
+        return
         if not config['fixed_range']:
             # 当鼠标滚轮滚动时，调整图像的显示范围
             if event.angleDelta().y() > 0:
@@ -286,7 +296,7 @@ class HandPlotManager:
             time.sleep(0.001)
 
     def process_image(self):
-        if self.dd.value:
+        if self.dd.value and self.dd.zero_set:
             self.dd.lock.acquire()
             data_fingers = self.dd.value[-1]  # 唯一的数据流入位置
             time_now = self.dd.time[-1]
@@ -337,13 +347,28 @@ class Window(QtWidgets.QWidget, Ui_Form):
         #
         if mode == 'zw':
             from backends.usb_driver import ZWUsbSensorDriver as SensorDriver
+            # 修改horizontalLayout_3的layoutStretch
+            # self.horizontalLayout_3.setStretch(3, 2)
         elif mode == 'zy':
             from backends.usb_driver import ZYUsbSensorDriver as SensorDriver
+            self.horizontalLayout_3.setStretch(0, 1)
+            self.horizontalLayout_3.setStretch(1, 1)
+        elif mode == 'zv':
+            from backends.usb_driver import ZVUsbSensorDriver as SensorDriver
+            self.horizontalLayout_3.setStretch(0, 1)
+            self.horizontalLayout_3.setStretch(1, 1)
+        elif mode == 'gl':
+            from backends.usb_driver import GLUsbSensorDriver as SensorDriver
+            self.horizontalLayout_3.setStretch(0, 1)
+            self.horizontalLayout_3.setStretch(1, 1)
         else:
             raise Exception("Invalid mode")
         config_mapping = get_config_mapping(mode)
         self.data_handler = DataHandler(get_split_driver_class(SensorDriver, config_mapping), max_len=256)
-        self.data_handler.set_filter(filter_name_frame="无", filter_name_time="中值-0.2s")
+        # self.data_handler.set_filter(filter_name_frame="无", filter_name_time="中值-0.2s")
+        self.data_handler.filter_time = Filter(self.data_handler.driver)
+        self.data_handler.filter_frame = Filter(self.data_handler.driver)
+        self.data_handler.filter_after_zero = RCFilterHP(self.data_handler.driver, alpha=0.0001)
         self.is_running = False
         #
         base_image = Image.open(os.path.join(RESOURCE_FOLDER, f'hand_{mode}.png')).convert('RGBA')
@@ -362,6 +387,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         #
         self.real_exit = False
         #
+        self.scheduled_set_zero = False
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_F11:
@@ -394,6 +420,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.timer.start(self.TRIGGER_TIME)
             self.set_enable_state()
             self.com_port.setEnabled(False)
+            self.scheduled_set_zero = True
 
     def stop(self):
         if self.is_running:
@@ -403,12 +430,17 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.data_handler.disconnect()
             self.hist_trigger.clear()
             self.set_enable_state()
+            self.scheduled_set_zero = False
+
+    def clear(self):
+        self.data_handler.clear()
+        self.hand_plot_manager.clear()
 
     def pre_initialize(self):
         self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
                                                               "E-skin Display" if LAN == 'en' else "电子皮肤采集程序"))
         self.setWindowIcon(QtGui.QIcon(os.path.join(RESOURCE_FOLDER, "tujian.ico")))
-        logo_path = "./interfaces/hand_shape/resources/logo.png"
+        logo_path = os.path.join(RESOURCE_FOLDER, "logo.png")
         self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
         self.label_logo.setScaledContents(True)
         self.initialize_buttons()
@@ -419,6 +451,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_stop.setEnabled(self.is_running)
         self.label_output.setText(STR_CONNECTED if self.is_running else STR_DISCONNECTED)
         self.button_save_to.setEnabled(self.is_running)
+        self.button_set_zero.setEnabled(self.is_running)
+        self.button_abandon_zero.setEnabled(self.is_running)
         if self.data_handler.output_file:
             self.button_save_to.setText("End acquisition" if LAN == "en" else "结束采集")
         else:
@@ -428,13 +462,17 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_start.clicked.connect(self.start)
         self.button_stop.clicked.connect(self.stop)
         self.button_set_zero.clicked.connect(self.data_handler.set_zero)
-        self.button_abandon_zero.clicked.connect(self.data_handler.abandon_zero)
+        self.button_abandon_zero.clicked.connect(self.clear)
         self.set_enable_state()
         self.com_port.setText(config['port'])
 
     def trigger(self):
         try:
             self.data_handler.trigger()
+            if self.scheduled_set_zero:
+                success = self.data_handler.set_zero()
+                if success:
+                    self.scheduled_set_zero = False
             self.hand_plot_manager.plot()
             if self.is_running:
                 time_now = time.time()

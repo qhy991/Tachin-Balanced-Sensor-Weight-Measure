@@ -33,6 +33,7 @@ class DataHandler:
         # 滤波器
         self.filter_time = preprocessing.Filter(template_sensor_driver)  # 当前的时间滤波。可被设置
         self.filter_frame = preprocessing.Filter(template_sensor_driver)  # 当前的空间滤波。可被设置
+        self.filter_after_zero = preprocessing.Filter(template_sensor_driver)
         self.preset_filters = preprocessing.build_preset_filters(template_sensor_driver)  # 下拉菜单里可设置的滤波器
         self.interpolation = Interpolation(1, 0., template_sensor_driver.SENSOR_SHAPE)  # 插值。可被设置
         self.curve_on = curve_on
@@ -56,6 +57,7 @@ class DataHandler:
         self.t_tracing = deque(maxlen=self.max_len)  # 追踪点的时间。由于更新追踪点时会清空，故单独记录
         self.tracing_point = (0, 0)  # 当前的追踪点
         self.lock = threading.Lock()
+        self.zero_set = False
         # 保存
         self.output_file = None
         self.cursor = None
@@ -124,7 +126,7 @@ class DataHandler:
 
     def clear(self):
         self.lock.acquire()
-        self.abandon_zero()
+        # self.abandon_zero()
         self.data.clear()
         self.smoothed_data.clear()
         self.value.clear()
@@ -165,7 +167,7 @@ class DataHandler:
                     smoothed_zero = self.smoothed_zero
                 # value = np.maximum(data_f - self.zero, 1e-6) * SCALE  # 0409改成电阻的倒数
                 # 关于用电阻倒数尺度还是对数尺度，长期以来都在变化。目前的版本是对数，发到前端的是电阻的负对数
-                value = ((data_f - self.zero) * self.driver.SCALE).astype(VALUE_DTYPE)
+                value = (self.filter_after_zero.filter(data_f - self.zero) * self.driver.SCALE).astype(VALUE_DTYPE)
                 smoothed_value = ((smoothed_data_f - smoothed_zero) * self.driver.SCALE).astype(VALUE_DTYPE)
                 value = self.calibration_adaptor.transform_frame(value)
                 if self.begin_time is None:
@@ -197,15 +199,20 @@ class DataHandler:
     def set_zero(self):
         # 置零
         if self.data.__len__() >= self.ZERO_LEN_REQUIRE:
+            self.zero_set = True
             self.zero[...] = np.mean(np.asarray(self.data)[-self.ZERO_LEN_REQUIRE:, ...], axis=0)
             self.smoothed_zero = self.interpolation.smooth(self.zero)
+            self.clear()
+            return True
         else:
-            warnings.warn('点数不够，无法置零')
+            # print('数据不足，无法置零')
+            return False
 
     def abandon_zero(self):
         # 解除置零
         self.zero[...] = 0
         self.smoothed_zero[...] = 0
+        self.zero_set = False
 
     def set_filter(self, filter_name_frame, filter_name_time):
         try:

@@ -17,6 +17,7 @@ class Interpolation:
             data = data.astype(float)
             if self.blur > 0:
                 # data = median_filter(data, size=2 * int(self.blur) + 1)
+                # data = median_filter(data, size=3)
                 data = gaussian_filter(data, sigma=self.blur)
             data = self.zoom(data)
             return data

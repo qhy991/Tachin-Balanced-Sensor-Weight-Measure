@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1252</width>
-    <height>650</height>
+    <width>1527</width>
+    <height>834</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -195,7 +195,7 @@
        <item>
         <widget class="QLabel" name="label_fixed">
          <property name="text">
-          <string>手掌电子皮肤显示程序V1.4  途见科技（北京）有限公司</string>
+          <string>手掌电子皮肤显示程序V1.5  途见科技（北京）有限公司</string>
          </property>
         </widget>
        </item>
