@@ -86,9 +86,9 @@ class HandPlotManager:
             surface_plot = GLSurfacePlotItem(
                 x=mesh['x'] / 100.,
                 y=mesh['y'] / 100.,
-                z=mesh['z'] * 10.,
+                z=mesh['z'] * 0.,
                 computeNormals=False,
-                colors=create_color_map(mesh['z']),
+                colors=create_color_map(mesh['z'] * 0.),
                 **MESH_PLOT_STYLE
             )
             self.gl_widget.addItem(surface_plot)
@@ -214,6 +214,9 @@ class HandPlotManager:
         new_shape = (int(x_length), int(x_length * y_rate))
 
         def mesh_function(data: np.ndarray):
+            data = Interpolation(2, 1.0, data.shape).smooth(data)
+            data = np.log(np.maximum(data, 1e-6)) / np.log(10)
+            data = np.clip((data + self.log_y_lim[1]) / (self.log_y_lim[1] - self.log_y_lim[0]), 0., 1.)
             x = center[0] + np.linspace(0, new_shape[0], data.shape[0]) - 0.5 * new_shape[0]
             y = center[1] + np.linspace(0, new_shape[1], data.shape[1]) - 0.5 * new_shape[1]
             z = data.copy()
@@ -271,8 +274,8 @@ class HandPlotManager:
                 surface_plot.setData(
                     x=self.meshes[k]['x'] / 100.,
                     y=self.meshes[k]['y'] / 100.,
-                    z=self.meshes[k]['z'] * 100.,
-                    colors=create_color_map(self.meshes[k]['z'] * 1000.),
+                    z=self.meshes[k]['z'] * 2.,
+                    colors=create_color_map(self.meshes[k]['z']),
                 )
 
             for idx, line in self.lines.items():
