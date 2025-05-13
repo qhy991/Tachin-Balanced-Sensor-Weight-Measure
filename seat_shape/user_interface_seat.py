@@ -20,13 +20,13 @@ import time
 import os
 import traceback
 import numpy as np
-from data.data_handler_multiple import DataHandler
+from data_processing.data_handler_multiple import DataHandler
 #
 from PIL import Image
 from config import config, save_config, config_multiple
 from config import config_mapping_seat as config_mapping
-from data.convert_data import ReplayDataSource
-from data.interpolation import Interpolation
+from data_processing.convert_data import ReplayDataSource
+from data_processing.interpolation import Interpolation
 
 
 cmap = pyqtgraph.ColorMap(np.linspace(0, 1, 17), (np.array(config_mapping['color_map']) * 255).astype(int))

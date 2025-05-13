@@ -138,16 +138,31 @@ class SplitDataDict:
 def get_split_driver_class(base_driver_class, config_mapping):
 
     class TactileDriverWithPreprocessing(base_driver_class):
-        RANGE_MAPPING = {int(k):
-                         [(slice(v[0], v[0] + v[5]),
-                           slice(v[1], v[1] + v[6])),
-                          bool(v[2]), bool(v[3]), bool(v[4]),
-                          float(v[7]),
-                          float(v[8])]
+
+        range_mapping = {int(k):
+                             [(slice(v[0], v[0] + v[5]),
+                               slice(v[1], v[1] + v[6])),
+                              bool(v[2]), bool(v[3]), bool(v[4]),
+                              float(v[7]),
+                              float(v[8])]
                          for k, v in config_mapping['range_mapping'].items()}
 
         def __init__(self):
             super().__init__()
+
+        def get_zeros(self, idx):
+            # 直接返回全零的分片
+            if idx in self.range_mapping.keys():
+                info = self.range_mapping[idx]
+                slicing = info[0]
+                xy_swap = info[3]
+                data_this = np.zeros((slicing[0].stop - slicing[0].start,
+                                      slicing[1].stop - slicing[1].start))
+                if xy_swap:
+                    data_this = data_this.T
+                return data_this
+            else:
+                raise KeyError(str(idx))
 
         def connect(self, port=None):
             flag = super().connect(port)
@@ -161,7 +176,7 @@ def get_split_driver_class(base_driver_class, config_mapping):
             while True:
                 data, t = super().get()
                 if data is not None:
-                    data_fingers = SplitDataDict(data, self.RANGE_MAPPING)
+                    data_fingers = SplitDataDict(data, self.range_mapping)
                     t_last = t
                 else:
                     break

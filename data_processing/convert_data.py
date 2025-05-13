@@ -23,52 +23,16 @@ def convert_db_to_csv(path):
                 data_row = np.vectorize(json.loads, otypes=[object])(data[c].values)
                 data_row = np.array([_ for _ in data_row])
                 to_be_concatenated.append(pd.DataFrame(data_row,
-                                                       columns=[f'data_row_{i}_{j}' for j in range(data_row.shape[1])]))
-        data_by_col = pd.concat(to_be_concatenated, axis=1)
-        save_path = path[:-3] + '.csv'
-        data_by_col.to_csv(save_path, index=False)
-        connection.close()
-        print('导出完成')
-        try:
-            os.startfile(save_path)
-        except Exception as e:
-            print(e)
-    else:
-        print('文件不存在')
-
-
-def convert_db_to_csv_multiple(path):
-    if os.path.exists(path):
-        assert path.endswith('.db')
-        connection = sqlite3.connect(path)
-        data = pd.read_sql(sql='SELECT * FROM data', con=connection)
-        # 直接导出为csv
-        save_path = path[:-3] + '.csv'
-        data.to_csv(save_path, index=False)
-        connection.close()
-        print('导出完成')
-        try:
-            os.startfile(save_path)
-        except Exception as e:
-            print(e)
-    else:
-        print('文件不存在')
-
-
-def convert_db_to_csv_multiple_old(path):
-    if os.path.exists(path):
-        assert path.endswith('.db')
-        connection = sqlite3.connect(path)
-        data = pd.read_sql(sql='SELECT * FROM data', con=connection)
-        data_time = pd.DataFrame(data[['time', 'time_after_begin', 'i_driver']])
-        to_be_concatenated = [data_time]
-        for c in data.columns:
-            if c.startswith('data_row_'):
+                                                       columns=[f'data_row_{i}_col_{j}'
+                                                                for j in range(data_row.shape[1])]))
+            elif c.startswith('data_region_'):
                 i = int(c.split('_')[-1])
+                j = int(c.split('_')[-3])
                 data_row = np.vectorize(json.loads, otypes=[object])(data[c].values)
                 data_row = np.array([_ for _ in data_row])
                 to_be_concatenated.append(pd.DataFrame(data_row,
-                                                       columns=[f'data_row_{i}_{j}' for j in range(data_row.shape[1])]))
+                                                         columns=[f'data_region_{j}_row_{i}_col_{k}'
+                                                                  for k in range(data_row.shape[1])]))
         data_by_col = pd.concat(to_be_concatenated, axis=1)
         save_path = path[:-3] + '.csv'
         data_by_col.to_csv(save_path, index=False)
@@ -134,8 +98,6 @@ class ReplayDataSource:
 
 
 if __name__ == '__main__':
-    names = [f'座椅1_测试{i + 1}_filtered' for i in range(4)] + [f'座椅1_变温后_测试{i + 1}_filtered' for i in range(4)]
-    for name in names:
-        convert_db_to_csv_multiple_old(f'../../seat_data_processing/data/{name}.db')
+    pass
 
 

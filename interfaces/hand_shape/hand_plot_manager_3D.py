@@ -9,13 +9,13 @@ from PIL import Image, ImageDraw
 from collections import deque
 import pyqtgraph
 from pyqtgraph.opengl import GLViewWidget, GLGridItem, GLLinePlotItem, GLSurfacePlotItem
-from data.preprocessing import MedianFilter
+from data_processing.preprocessing import MedianFilter
 from interfaces.hand_shape.feature_extractor import FingerFeatureExtractor
-from data.interpolation import Interpolation
+from data_processing.interpolation import Interpolation
 from utils.performance_monitor import Ticker
 from PyQt5.QtGui import QWheelEvent
 from PyQt5 import QtWidgets
-from data.data_handler import DataHandler
+from data_processing.data_handler import DataHandler
 from config import config, save_config, get_config_mapping
 from scipy.interpolate import interp1d
 
@@ -76,9 +76,11 @@ class HandPlotManager:
                      int(k)]
             for k in range_mapping.keys()
         }
+        # 分区投影函数
         self.mesh_functions = {
             int(k): self.make_mesh_function(rects[int(k)]) for k in pixel_mapping.keys()
         }
+        # 表面
         self.surface_plots = {}
         self.meshes = {int(k): self.mesh_functions[int(k)](np.zeros((range_mapping[k][5], range_mapping[k][6])))
                             for k in pixel_mapping.keys()}
@@ -93,7 +95,20 @@ class HandPlotManager:
             )
             self.gl_widget.addItem(surface_plot)
             self.surface_plots.update({int(k): surface_plot})
-        #
+        # 箭头
+        # if self.arrow_offset is not None:
+        #     for k, mesh in self.meshes.items():
+        #         arrow_plot = GLLinePlotItem(
+        #             mesh['x'] / 100.,
+        #             mesh['y'] / 100.,
+        #             mesh['z'] * 0.,
+        #             color=(1, 1, 1, 0.5),
+        #             width=2,
+        #             antialias=True,
+        #         )
+        #         self.gl_widget.addItem(arrow_plot)
+        #         self.surface_plots.update({int(k): arrow_plot})
+
         # 曲线图
         ax: pyqtgraph.PlotItem = fig_widget_1d.addPlot()
         ax.setLabel(axis='left', text='Contact strength' if LAN == "en" else '接触强度')
@@ -214,12 +229,16 @@ class HandPlotManager:
         new_shape = (int(x_length), int(x_length * y_rate))
 
         def mesh_function(data: np.ndarray):
-            data = Interpolation(2, 1.0, data.shape).smooth(data)
+            x = center[0] + (np.linspace(0, new_shape[0], data.shape[0] + 2) - 0.5 * new_shape[0]) * x_length / (data.shape[0] + 2) / 20
+            y = center[1] + (np.linspace(0, new_shape[1], data.shape[1] + 2) - 0.5 * new_shape[1]) * x_length * y_rate / (data.shape[1] + 2) / 20
+
             data = np.log(np.maximum(data, 1e-6)) / np.log(10)
             data = np.clip((data + self.log_y_lim[1]) / (self.log_y_lim[1] - self.log_y_lim[0]), 0., 1.)
-            x = center[0] + np.linspace(0, new_shape[0], data.shape[0]) - 0.5 * new_shape[0]
-            y = center[1] + np.linspace(0, new_shape[1], data.shape[1]) - 0.5 * new_shape[1]
+            # 外面加一圈
+            data = np.pad(data, ((1, 1), (1, 1)), mode='constant', constant_values=0.)
+            data = Interpolation(1, 1.0, data.shape).smooth(data)
             z = data.copy()
+
             return {'x': x - 450, 'y': y - 600, 'z': z}
 
         return mesh_function
@@ -274,7 +293,7 @@ class HandPlotManager:
                 surface_plot.setData(
                     x=self.meshes[k]['x'] / 100.,
                     y=self.meshes[k]['y'] / 100.,
-                    z=self.meshes[k]['z'] * 2.,
+                    z=self.meshes[k]['z'] * 1.,
                     colors=create_color_map(self.meshes[k]['z']),
                 )
 

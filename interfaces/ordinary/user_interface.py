@@ -19,9 +19,10 @@ from usb.core import USBError
 import sys
 import traceback
 import numpy as np
-from data.data_handler import DataHandler
+from data_processing.data_handler import DataHandler
 #
 from config import config, save_config
+from interfaces.public.utils import set_logo
 
 #
 STANDARD_PEN = pyqtgraph.mkPen('k')
@@ -150,12 +151,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.set_enable_state()
 
     def pre_initialize(self):
-        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
-                                                              "E-skin Display" if LAN == 'en' else "电子皮肤采集程序"))
-        self.setWindowIcon(QtGui.QIcon("./ordinary/layout/tujian.ico"))
-        logo_path = "./ordinary/resources/logo.png"
-        self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
-        self.label_logo.setScaledContents(True)
+        set_logo(self)
+
         self.initialize_image()
         self.initialize_buttons()
         self.initialize_others()

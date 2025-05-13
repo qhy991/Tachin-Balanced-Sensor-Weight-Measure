@@ -16,13 +16,13 @@ import time
 import os
 import traceback
 import numpy as np
-from data.data_handler import DataHandler
+from data_processing.data_handler import DataHandler
 from PIL import Image, ImageDraw
 from config import config, save_config, get_config_mapping
 from collections import deque
 from usb.core import USBError
 from multiple_skins.tactile_spliting import get_split_driver_class
-from data.preprocessing import Filter, MedianFilter, RCFilterHP
+from data_processing.preprocessing import Filter, MedianFilter, RCFilterHP
 from interfaces.hand_shape.hand_plot_manager_3D import HandPlotManager
 
 STR_CONNECTED = "Connected" if LAN == "en" else "已连接"

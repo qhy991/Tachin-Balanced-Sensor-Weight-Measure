@@ -6,7 +6,7 @@ import sqlite3
 import os
 import pandas as pd
 import numpy as np
-from data.data_viewer.qt.ui_data_viewer import Ui_MainWindow
+from data.data_viewer_OBSELETE.qt.ui_data_viewer import Ui_MainWindow
 from config import config
 import json
 import warnings

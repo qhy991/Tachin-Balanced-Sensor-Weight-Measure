@@ -127,19 +127,3 @@ class BulkChannel:
         interface_t, epo_t, epi_t = self.get_dev_interface_epio(device=dev_t)
         return interface_t, epo_t, epi_t
 
-
-if __name__ == '__main__':
-    # 简单的调用测试
-    from config import config_array
-    ub = UsbBackend(config_array)  # 使用中支持在UsbBackend里存一些数后一起取出，默认16帧
-    ub.start(2)  # 卡号
-    t_last = None
-    while True:
-        data, t = ub.get()
-        if data is not None:
-            print(np.max(data), np.mean(data))
-            if t_last is not None:
-                print(t - t_last)
-            t_last = t
-        time.sleep(0.001)
-    pass

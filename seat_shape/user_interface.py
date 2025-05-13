@@ -18,10 +18,10 @@ from usb.core import USBError
 import sys
 import traceback
 import numpy as np
-from data.data_handler_multiple import DataHandler
+from data_processing.data_handler_multiple import DataHandler
 #
 from config import config, save_config, config_multiple
-from data.convert_data import ReplayDataSource
+from data_processing.convert_data import ReplayDataSource
 
 #
 STANDARD_PEN = pyqtgraph.mkPen('k')

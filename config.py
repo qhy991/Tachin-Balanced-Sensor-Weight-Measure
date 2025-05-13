@@ -6,55 +6,18 @@ config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), './config
 config = json.load(
     open(config_path, 'rt'))
 
-# 以下是可选配置
-
-
 def get_config_mapping(suffix):
 
     try:
         config_mapping = json.load(
             open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              f'interfaces/hand_shape/config_mapping_hand_{suffix}.json'), 'rt',
+                              f'interfaces/config_mapping/config_mapping_{suffix}.json'), 'rt',
                  encoding='utf-8'),
         )
     except FileNotFoundError:
         config_mapping = None
 
     return config_mapping
-
-try:
-    config_mapping_seat = json.load(
-        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'seat_shape/config_mapping_seat.json'), 'rt'))
-except FileNotFoundError:
-    config_mapping_seat = None
-
-try:
-    config_array = json.load(
-        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), './config_array.json'), 'rt'))
-except FileNotFoundError:
-    config_array = None
-
-try:
-    config_multiple = json.load(
-        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'seat_shape/config_seat.json'), 'rt',
-             encoding='utf-8'))
-except FileNotFoundError:
-    config_multiple = None
-
-try:
-    config_void_list = json.load(
-        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), './config_void_list.json'), 'rt'))
-
-except FileNotFoundError:
-    config_void_list = None
-
-try:
-    config_serial = json.load(
-        open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'small/config_serial.json'), 'rt',
-             encoding='utf-8'))
-except FileNotFoundError:
-    config_serial = None
-
 
 def save_config():
     try:

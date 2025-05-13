@@ -1,21 +1,5 @@
 # algorithm_class 是 sensor_calibrate.py 中 Algorithm 的子类
-import numpy as np
-from calibrate.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm, ManualInterpolationAlgorithm
 eps = 1e-12
-
-#
-# def average_2x2_blocks(arr):
-#     # 获取输入数组的形状
-#     h, w = arr.shape
-#
-#     # 确保数组的形状是 2 的倍数
-#     assert h % 2 == 0 and w % 2 == 0, "Array dimensions must be multiples of 2"
-#
-#     # 计算每个 2x2 小格的平均值
-#     result = np.mean(arr.reshape(h // 2, 2, w // 2, 2), axis=(1, 3), keepdims=True)
-#     result = np.repeat(np.repeat(result, 2, axis=1), 2, axis=3)
-#
-#     return result
 
 
 class CalibrateAdaptor:

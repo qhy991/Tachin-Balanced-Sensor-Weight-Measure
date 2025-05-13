@@ -8,13 +8,13 @@ import numpy as np
 from PIL import Image, ImageDraw
 from collections import deque
 import pyqtgraph
-from data.preprocessing import MedianFilter
+from data_processing.preprocessing import MedianFilter
 from interfaces.hand_shape.feature_extractor import FingerFeatureExtractor
-from data.interpolation import Interpolation
+from data_processing.interpolation import Interpolation
 from utils.performance_monitor import Ticker
 from PyQt5.QtGui import QWheelEvent
 
-from data.data_handler import DataHandler
+from data_processing.data_handler import DataHandler
 legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
 STANDARD_PEN = pyqtgraph.mkPen('k')
 from config import config, save_config, get_config_mapping

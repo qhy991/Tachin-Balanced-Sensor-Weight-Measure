@@ -130,6 +130,7 @@ class Decoder:
             data = sum([(_.astype(np.int8) if bit == 0 else _).astype(np.int16)
                         * (2 ** (8 * (self.bytes_per_point - bit - 1)))
                         for bit, _ in enumerate(self.finished_frame)]).reshape(self.sensor_shape)
+            # 引入底层滤波器
             self.buffer.append((data, self.last_finish_time))
 
     def __abort_frame(self):
@@ -141,16 +142,25 @@ class Decoder:
         return crc(data)
 
     def get(self):
-        if self.buffer:
-            data, t = self.buffer.popleft()
-            return data, t
-        else:
-            return None, None
+        try:
+            if self.buffer:
+                data, t = self.buffer.popleft()
+                return data, t
+            else:
+                return None, None
+        except Exception as e:
+            raise Exception("Unexpected Exception")
 
     def get_last(self):
-        if self.buffer:
-            data, t = self.buffer.pop()
-            self.buffer.clear()
-            return data, t
-        else:
-            return None, None
+        try:
+            if self.buffer:
+                data, t = self.buffer.pop()
+                self.buffer.clear()
+                return data, t
+            else:
+                return None, None
+        except Exception as e:
+            raise Exception("Unexpected Exception")
+
+
+

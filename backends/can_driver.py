@@ -19,10 +19,6 @@ class CanSensorDriver(AbstractSensorDriver):
         return self.sensor_backend.active
 
     def connect(self, port):
-        try:
-            port = int(port)
-        except ValueError:
-            raise ValueError("错误的设备号格式")
         return self.sensor_backend.start(port)
 
     def disconnect(self):

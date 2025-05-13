@@ -46,7 +46,7 @@ class LargeUsbSensorDriver(UsbSensorDriver):
     SENSOR_SHAPE = (64, 64)
 
     def __init__(self):
-        config_array = json.load(open(os.path.dirname(__file__) + '/config_array_zv.json', 'rt'))
+        config_array = json.load(open(os.path.dirname(__file__) + '/config_array_64.json', 'rt'))
         super(LargeUsbSensorDriver, self).__init__(self.SENSOR_SHAPE, config_array)
 
 

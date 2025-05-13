@@ -38,7 +38,7 @@ class Calibration:
                     self.cycles.append(PointCycleData(force, sensor_reading))
 
 
-FORCE_SCALING = 10
+FORCE_SCALING = 100  # 力的单位转换系数。100表示标定文件里的1是0.01N
 
 
 class PointCycleData:

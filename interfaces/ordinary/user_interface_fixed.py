@@ -19,7 +19,7 @@ from usb.core import USBError
 import sys
 import traceback
 import numpy as np
-from data.data_handler import DataHandler
+from data_processing.data_handler import DataHandler
 from backends.sensor_driver import LargeSensorDriver
 from server.socket_client import SocketClient
 #

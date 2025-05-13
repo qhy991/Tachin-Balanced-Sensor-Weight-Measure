@@ -1,23 +1,21 @@
 """数据处理中心"""
 
-import warnings
 import os
 from collections import deque
 import numpy as np
 import atexit
-import shutil
-import data.preprocessing as preprocessing
-from data.interpolation import Interpolation
+import data_processing.preprocessing as preprocessing
+from data_processing.interpolation import Interpolation
 import json
 import sqlite3
-from data.convert_data import convert_db_to_csv
+from data_processing.convert_data import convert_db_to_csv
 from config import config
 
 import threading
 
 # 引入calibrate_adaptor
-from calibrate.calibrate_adaptor import CalibrateAdaptor, \
-    Algorithm, ManualDirectionLinearAlgorithm
+from data_processing.calibrate_adaptor import CalibrateAdaptor
+from data_processing.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
 
 VALUE_DTYPE = '>f2'
 
@@ -38,7 +36,11 @@ class DataHandler:
         self.interpolation = Interpolation(1, 0., template_sensor_driver.SENSOR_SHAPE)  # 插值。可被设置
         self.curve_on = curve_on
         #
-        self.single_mode = not (template_sensor_driver.__name__ == 'TactileDriverWithPreprocessing')  # 整片模式
+        # region_count为0表示为单片；否则为分片
+        if template_sensor_driver.__name__ == 'TactileDriverWithPreprocessing':
+            self.region_count = template_sensor_driver.range_mapping.__len__()
+        else:
+            self.region_count = 0
         # 分片模式下，数据的处理方式会有区别
         self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 标定器
         # 数据容器
@@ -69,8 +71,6 @@ class DataHandler:
         self.next_dump = 0.
 
     # 保存功能
-    # 待优化：目前每行所有数存成json。很不优雅
-
     def link_output_file(self, path):
         # 采集到文件时，打开文件
         try:
@@ -81,11 +81,20 @@ class DataHandler:
             self.output_file = sqlite3.connect(path)
             self.path_db = path
             self.cursor = self.output_file.cursor()
-            command = 'create table data (time float, time_after_begin float, '\
-                      + ', '.join([f'data_row_{i} text'
-                                  for i in range(self.driver.SENSOR_SHAPE[0])
-                                  ])\
-                      + ')'
+            if self.region_count == 0:  # 无分区
+                command = 'create table data (time float, time_after_begin float, '\
+                          + ', '.join([f'data_row_{i} text'
+                                      for i in range(self.driver.SENSOR_SHAPE[0])
+                                      ])\
+                          + ')'
+            else:
+                # SplitDataDict 模式
+                command = 'create table data (time float, time_after_begin float, ' \
+                          + ', '.join([f'data_region_{i}_row_{j} text'
+                                       for i in range(self.region_count)
+                                       for j in range(self.driver.SENSOR_SHAPE[0])
+                                       ]) \
+                          + ')'
             self.cursor.execute(command)
 
         except PermissionError as e:
@@ -102,8 +111,14 @@ class DataHandler:
             if self.next_dump == 0.:
                 self.next_dump = time_after_begin
             if time_after_begin >= self.next_dump:
-                command = f'insert into data values ({time_now}, {time_after_begin}, ' \
-                          + ', '.join(['\"' + json.dumps(_.tolist()) + '\"' for _ in data]) + ')'
+                if self.region_count == 0:
+                    command = f'insert into data values ({time_now}, {time_after_begin}, ' \
+                              + ', '.join(['\"' + json.dumps(_.tolist()) + '\"' for _ in data]) + ')'
+                else:
+                    # SplitDataDict 模式
+                    data_list = sum([['\"' + json.dumps(_.tolist()) + '\"' for _ in data[k]] for k in data.keys()], [])
+                    command = f'insert into data values ({time_now}, {time_after_begin}, ' \
+                              + ', '.join(data_list) + ')'
                 self.cursor.execute(command)
                 self.commit_file()
                 self.next_dump = self.next_dump + self.dump_interval
@@ -159,7 +174,7 @@ class DataHandler:
                 data_f = self.filter_time.filter(self.filter_frame.filter(data))
                 self.data.append(data_f)
                 # data_f = data.copy()
-                if self.single_mode:  # 仅常规数据使用平滑
+                if self.region_count == 0:  # 仅常规数据使用平滑
                     smoothed_data_f = self.interpolation.smooth(data_f)
                     smoothed_zero = self.smoothed_zero
                 else:

@@ -8,7 +8,8 @@ import numpy as np
 # 添加一个装饰器。如果filter输入的x不是一个numpy.ndarray，进行某种处理
 def check_input(func):
     def wrapper(self, x):
-        if not isinstance(x, np.ndarray):
+        if not isinstance(x, np.ndarray):  # 适用SplitDict
+            x = x.copy()
             x.full_data = func(self, x.full_data)
             return x
         else:
