@@ -1,6 +1,7 @@
 """数据处理中心"""
 
 import os
+import warnings
 from collections import deque
 import numpy as np
 import atexit
@@ -46,13 +47,12 @@ class DataHandler:
         # 数据容器
         self.begin_time = None
         self.data = deque(maxlen=self.max_len)  # 直接从SensorDriver获得的数据
-        self.smoothed_data = deque(maxlen=self.max_len)  # 直接从SensorDriver获得的数据
+        self.filtered_data = deque(maxlen=self.max_len)  # 直接从SensorDriver获得的数据
         self.value = deque(maxlen=self.max_len)  # 经过所有处理，但未通过interpolation，也未做对数尺度变换。对自研卡，未开启标定时，是电阻(kΩ)的倒数
-        self.smoothed_value = deque(maxlen=self.max_len)  # 与value相同，但经过interpolation
         self.time = deque(maxlen=self.max_len)  # 从connect后首个采集点开始到现在的时间
         self.time_ms = deque(maxlen=self.max_len)  # ms上的整型。通讯专用
         self.zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)  # 零点
-        self.smoothed_zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)
+        self.value_zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)
         self.value_mid = deque(maxlen=self.max_len)  # 中值
         self.maximum = deque(maxlen=self.max_len)  # 峰值
         self.tracing = deque(maxlen=self.max_len)  # 追踪点
@@ -143,7 +143,7 @@ class DataHandler:
         self.lock.acquire()
         # self.abandon_zero()
         self.data.clear()
-        self.smoothed_data.clear()
+        self.filtered_data.clear()
         self.value.clear()
         self.time.clear()
         self.time_ms.clear()
@@ -152,6 +152,11 @@ class DataHandler:
         self.tracing.clear()
         self.t_tracing.clear()
         self.lock.release()
+
+    @property
+    def smoothed_value(self):
+        warnings.warn("OBSELETE API: smoothed_value")
+        return self.value
 
     def connect(self, port):
         self.begin_time = None
@@ -171,34 +176,27 @@ class DataHandler:
             count_in -= 1
             data, time_now = self.driver.get()
             if data is not None:
-                data_f = self.filter_time.filter(self.filter_frame.filter(data))
-                self.data.append(data_f)
-                # data_f = data.copy()
-                if self.region_count == 0:  # 仅常规数据使用平滑
-                    smoothed_data_f = self.interpolation.smooth(data_f)
-                    smoothed_zero = self.smoothed_zero
-                else:
-                    smoothed_data_f = self.interpolation.smooth(data_f)
-                    smoothed_zero = self.smoothed_zero
-                # value = np.maximum(data_f - self.zero, 1e-6) * SCALE  # 0409改成电阻的倒数
-                # 关于用电阻倒数尺度还是对数尺度，长期以来都在变化。目前的版本是对数，发到前端的是电阻的负对数
-                value = (self.filter_after_zero.filter(data_f - self.zero) * self.driver.SCALE).astype(VALUE_DTYPE)
-                smoothed_value = ((smoothed_data_f - smoothed_zero) * self.driver.SCALE).astype(VALUE_DTYPE)
-                value = self.calibration_adaptor.transform_frame(value)
+                # 原始数据
+                # 滤波数据
+                data_f = self.interpolation.smooth(self.filter_time.filter(self.filter_frame.filter(data)))
+                # 换算值
+                value = self.calibration_adaptor.transform_frame(data_f.astype(VALUE_DTYPE) * self.driver.SCALE)
+                value = self.filter_after_zero.filter(value - self.zero)
+                # 时间
                 if self.begin_time is None:
                     self.begin_time = time_now
                 time_after_begin = time_now - self.begin_time
                 self.lock.acquire()
-                self.smoothed_data.append(smoothed_data_f)
+                self.data.append(data)
+                self.filtered_data.append(data_f)
                 self.value.append(value)
-                self.smoothed_value.append(smoothed_value)
                 self.time.append(time_after_begin)
                 if self.curve_on:
                     self.t_tracing.append(time_after_begin)
                     self.time_ms.append(np.array([(time_after_begin * 1e3) % 10000], dtype='>i2'))  # ms
-                    self.value_mid.append(np.median(smoothed_value))
-                    self.maximum.append(np.max(smoothed_value))
-                    self.tracing.append(np.mean(np.asarray(smoothed_value)[
+                    self.value_mid.append(np.median(value))
+                    self.maximum.append(np.max(value))
+                    self.tracing.append(np.mean(np.asarray(value)[
                                                    self.tracing_point[0] * self.interpolation.interp
                                                    : (self.tracing_point[0] + 1) * self.interpolation.interp,
                                                    self.tracing_point[1] * self.interpolation.interp
@@ -213,10 +211,9 @@ class DataHandler:
 
     def set_zero(self):
         # 置零
-        if self.data.__len__() >= self.ZERO_LEN_REQUIRE:
+        if self.value.__len__() >= self.ZERO_LEN_REQUIRE:
             self.zero_set = True
-            self.zero[...] = np.mean(np.asarray(self.data)[-self.ZERO_LEN_REQUIRE:, ...], axis=0)
-            self.smoothed_zero = self.interpolation.smooth(self.zero)
+            self.zero = np.mean(np.asarray(self.value)[-self.ZERO_LEN_REQUIRE:, ...], axis=0)
             self.clear()
             return True
         else:
@@ -226,7 +223,6 @@ class DataHandler:
     def abandon_zero(self):
         # 解除置零
         self.zero[...] = 0
-        self.smoothed_zero[...] = 0
         self.zero_set = False
 
     def set_filter(self, filter_name_frame, filter_name_time):
@@ -250,8 +246,7 @@ class DataHandler:
         assert blur == float(blur)
         assert 0. <= blur <= 8.
         self.interpolation = Interpolation(interpolate, blur, self.driver.SENSOR_SHAPE)
-        self.smoothed_zero = self.interpolation.smooth(self.zero)
-        pass
+        self.abandon_zero()
 
     def set_calibrator(self, path):
         try:

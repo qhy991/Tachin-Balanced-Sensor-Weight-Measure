@@ -4,11 +4,14 @@ eps = 1e-12
 
 class CalibrateAdaptor:
 
-    def __init__(self, sensor_class, algorithm_class):
+    def __init__(self, sensor_class, algorithm_class, *args, **kwargs):
         sensor_shape = sensor_class.SENSOR_SHAPE
         self.algorithm_class = algorithm_class
-        self.algorithm = algorithm_class(sensor_class, None)
+        self.algorithm = algorithm_class(sensor_class, None, *args, **kwargs)
         self.__sensor_shape = sensor_shape
+
+    def range(self):
+        return self.algorithm.get_range()
 
     def load(self, path):
         content = ''.join(open(path, 'rt').readlines())

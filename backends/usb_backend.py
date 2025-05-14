@@ -22,6 +22,30 @@ class UsbBackend:
         self.err_queue = deque(maxlen=1)
         #
         self.active = False
+        #
+        self.lock_devs = threading.Lock()
+
+    def get_available_sources(self):
+        names_found = None
+        with self.lock_devs:
+            self.bc.refresh_usb_devices()
+            names_found = [_.bcdDevice for _ in self.bc.devices_found]
+        return names_found
+
+    def start_by_idx(self, idx):
+        try:
+            if self.epi_t is None:
+                # 似乎由于USB的缺陷，无法重连
+                with self.lock_devs:
+                    interface_t, epo_t, epi_t\
+                        = self.bc.get_dev_interface_epio(device=self.bc.devices_found[idx])
+                self.epi_t = epi_t
+            self.active = True
+            threading.Thread(target=self.__read_forever, daemon=True).start()
+            return True
+        except usb.core.USBError as e:
+            print('Failed to connect to USB device')
+            raise e
 
     def start(self, rev):
         # 通过REV号区分不同的采集卡
@@ -63,15 +87,17 @@ class UsbBackend:
     def get_last(self):
         return self.decoder.get_last()
 
-
 class BulkChannel:
     # USB协议相关
     # USB协议存在平台差异。代码是Windows下的实现
+    idVendor = 0x04b4
+    idProduct = 0x1004
 
     def __init__(self):
         self.LIB_PATH = 'C:\\Windows\\System32\\libusb0-1.0.dll'
         self.interface_index = ''
         self.backend = None
+        self.devices_found = []
 
     def update_backend(self, backend):
         """更新当前后端"""
@@ -85,19 +111,34 @@ class BulkChannel:
             raise Exception('Failed to load USB backend. Missing libusb-1.0.dll')
         return backend
 
+    def refresh_usb_devices(self):
+        if not self.backend:
+            self.update_backend(self.get_backend())
+        devs = usb.core.find(backend=self.backend,
+                             idVendor=self.idVendor, idProduct=self.idProduct,
+                             find_all=True)
+        self.devices_found = devs
+
     def get_usb_devices(self, rev):
         """获取当前系统上挂载的设备iter"""
+        # 若rev为None,则返回所有设备
+        # 若rev为int，则返回rev对应的设备，若没有则会报错
         # 如果没有后端,就尝试添加一个
         if not self.backend:
             self.update_backend(self.get_backend())
         # print(usb.core.show_devices(backend=backend))
         # find USB devices, 记得添加backend参数
         # 0x04b4和0x1004是采集卡的固定参数
-        devs = usb.core.find(backend=self.backend, idVendor=0x04b4, idProduct=0x1004, find_all=True)
-        for dev in devs:
-            if dev.bcdDevice == rev:
-                return dev
-        raise Exception('USB device not found or incorrect REV number')
+        devs = usb.core.find(backend=self.backend,
+                             idVendor=self.idVendor, idProduct=self.idProduct,
+                             find_all=True)
+        if rev is None:
+            return devs
+        else:
+            for dev in devs:
+                if dev.bcdDevice == rev:
+                    return dev
+            raise Exception('USB device not found or incorrect REV number')
 
     def get_dev_interface_epio(self, device):
         """获取当前dev上的interface和相应的epo/epi"""

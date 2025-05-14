@@ -18,6 +18,11 @@ class UsbSensorDriver(AbstractSensorDriver):
     def connected(self):
         return self.sensor_backend.active
 
+    def get_available_sources(self):
+        # 获取可用的USB设备
+        names_found = self.sensor_backend.get_available_sources()
+        return names_found
+
     def connect(self, port):
         try:
             port = int(port)
@@ -86,4 +91,15 @@ class GLUsbSensorDriver(UsbSensorDriver):
         super(GLUsbSensorDriver, self).__init__(self.SENSOR_SHAPE,
                                                 config_array)
 
+if __name__ == '__main__':
+    import time
+    driver = LargeUsbSensorDriver()
+    driver.connect(0)
+    while True:
+        data, t = driver.get()
+        if data is not None:
+            print(data)
+            print(t)
+        else:
+            time.sleep(0.001)
 

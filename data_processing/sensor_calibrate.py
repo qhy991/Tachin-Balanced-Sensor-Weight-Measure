@@ -115,6 +115,13 @@ class Algorithm:
         """
         return True
 
+    def get_range(self):
+        """
+        获取标定范围
+        :return: 标定范围
+        """
+        return [0, 1]
+
     def get_data(self, ignore):
         if ignore is None:
             ignore = []
@@ -157,6 +164,11 @@ class ManualInterpolationAlgorithm(Algorithm):
         self.interp = interp1d(xx, yy, kind='linear',
                                bounds_error=False, fill_value=(yy[0], yy[-1]))
         self.apply()
+
+    def get_range(self):
+        if self.xx is None or self.yy is None:
+            return [0, 1]
+        return [self.xx[0], self.xx[-1]]
 
     def transform(self, sensor_reading):
         force_est = self.interp(sensor_reading)
@@ -209,6 +221,12 @@ class ManualDirectionLinearAlgorithm(Algorithm):
         #
         self.streaming_voltage = None
         self.streaming_trend = np.zeros(shape=sensor_class.SENSOR_SHAPE, dtype='>f2')
+
+    def get_range(self):
+        if self.nodes_center.__len__() == 0:
+            return [0, 1]
+        else:
+            return [self.nodes_center[0], self.nodes_center[-1]]
 
     def clear_streaming(self):
         self.streaming_voltage = None
