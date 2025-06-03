@@ -52,7 +52,7 @@
        </property>
        <property name="sizeHint" stdset="0">
         <size>
-         <width>10</width>
+         <width>13</width>
          <height>20</height>
         </size>
        </property>
@@ -100,6 +100,17 @@
         </size>
        </property>
       </spacer>
+     </item>
+     <item>
+      <layout class="QGridLayout" name="gridLayout_3">
+       <item row="0" column="0">
+        <widget class="QPushButton" name="button_load_calibration">
+         <property name="text">
+          <string>加载标定文件...</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
       <layout class="QVBoxLayout" name="verticalLayout_6">
@@ -195,7 +206,7 @@
        <item>
         <widget class="QLabel" name="label_fixed">
          <property name="text">
-          <string>手掌电子皮肤显示程序V1.5  途见科技（北京）有限公司</string>
+          <string>手掌电子皮肤显示程序V1.6  途见科技（北京）有限公司</string>
          </property>
         </widget>
        </item>

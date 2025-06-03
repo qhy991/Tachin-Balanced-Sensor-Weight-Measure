@@ -1,5 +1,5 @@
 call activate sensor_driver_gui
-pyinstaller -D interface_can_double_sensor.py -i interfaces\resources\logo.ico
+pyinstaller -D -w interface_can_double_sensor.py -i interfaces\resources\logo.ico
 mkdir dist\interface_can_double_sensor\_internal\backends
 mkdir dist\interface_can_double_sensor\_internal\interfaces
 mkdir dist\interface_can_double_sensor\_internal\interfaces\resources

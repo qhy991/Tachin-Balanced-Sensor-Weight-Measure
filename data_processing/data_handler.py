@@ -18,12 +18,12 @@ import threading
 from data_processing.calibrate_adaptor import CalibrateAdaptor
 from data_processing.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
 
-VALUE_DTYPE = '>f2'
+VALUE_DTYPE = float
 
 
 class DataHandler:
 
-    ZERO_LEN_REQUIRE = 16
+    ZERO_LEN_REQUIRE = 32
     MAX_IN = 16
 
     def __init__(self, template_sensor_driver, max_len=64, curve_on=True):
@@ -32,6 +32,7 @@ class DataHandler:
         # 滤波器
         self.filter_time = preprocessing.Filter(template_sensor_driver)  # 当前的时间滤波。可被设置
         self.filter_frame = preprocessing.Filter(template_sensor_driver)  # 当前的空间滤波。可被设置
+        self.filters_for_each = None
         self.filter_after_zero = preprocessing.Filter(template_sensor_driver)
         self.preset_filters = preprocessing.build_preset_filters(template_sensor_driver)  # 下拉菜单里可设置的滤波器
         self.interpolation = Interpolation(1, 0., template_sensor_driver.SENSOR_SHAPE)  # 插值。可被设置
@@ -44,10 +45,12 @@ class DataHandler:
             self.region_count = 0
         # 分片模式下，数据的处理方式会有区别
         self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 标定器
+        self.using_calibration = False
         # 数据容器
         self.begin_time = None
         self.data = deque(maxlen=self.max_len)  # 直接从SensorDriver获得的数据
         self.filtered_data = deque(maxlen=self.max_len)  # 直接从SensorDriver获得的数据
+        self.value_before_zero = deque(maxlen=self.max_len)
         self.value = deque(maxlen=self.max_len)  # 经过所有处理，但未通过interpolation，也未做对数尺度变换。对自研卡，未开启标定时，是电阻(kΩ)的倒数
         self.time = deque(maxlen=self.max_len)  # 从connect后首个采集点开始到现在的时间
         self.time_ms = deque(maxlen=self.max_len)  # ms上的整型。通讯专用
@@ -98,10 +101,8 @@ class DataHandler:
             self.cursor.execute(command)
 
         except PermissionError as e:
-            print(e)
             raise Exception('文件无法写入。可能正被占用')
         except Exception as e:
-            print(e)
             raise Exception('文件无法写入')
 
     def write_to_file(self, time_now, time_after_begin, data):
@@ -141,9 +142,9 @@ class DataHandler:
 
     def clear(self):
         self.lock.acquire()
-        # self.abandon_zero()
         self.data.clear()
         self.filtered_data.clear()
+        self.value_before_zero.clear()
         self.value.clear()
         self.time.clear()
         self.time_ms.clear()
@@ -155,7 +156,7 @@ class DataHandler:
 
     @property
     def smoothed_value(self):
-        warnings.warn("OBSELETE API: smoothed_value")
+        warnings.warn("OBSOLETE API: smoothed_value")
         return self.value
 
     def connect(self, port):
@@ -178,9 +179,14 @@ class DataHandler:
             if data is not None:
                 # 原始数据
                 # 滤波数据
-                data_f = self.interpolation.smooth(self.filter_time.filter(self.filter_frame.filter(data)))
+                _ = self.filter_time.filter(self.filter_frame.filter(data))
+                if self.filters_for_each is not None:
+                    for k in self.filters_for_each:
+                        _[k] = self.filters_for_each[k].filter(_[k])
+                data_f = self.interpolation.smooth(_)
                 # 换算值
-                value = self.calibration_adaptor.transform_frame(data_f.astype(VALUE_DTYPE) * self.driver.SCALE)
+                value = self.calibration_adaptor.transform_frame(data_f.astype(float) * self.driver.SCALE)
+                value_before_zero = value
                 value = self.filter_after_zero.filter(value - self.zero)
                 # 时间
                 if self.begin_time is None:
@@ -189,6 +195,7 @@ class DataHandler:
                 self.lock.acquire()
                 self.data.append(data)
                 self.filtered_data.append(data_f)
+                self.value_before_zero.append(value_before_zero)
                 self.value.append(value)
                 self.time.append(time_after_begin)
                 if self.curve_on:
@@ -211,9 +218,9 @@ class DataHandler:
 
     def set_zero(self):
         # 置零
-        if self.value.__len__() >= self.ZERO_LEN_REQUIRE:
+        if self.value_before_zero.__len__() >= self.ZERO_LEN_REQUIRE + self.filter_time.order * 2:
             self.zero_set = True
-            self.zero = np.mean(np.asarray(self.value)[-self.ZERO_LEN_REQUIRE:, ...], axis=0)
+            self.zero = np.mean(np.maximum(np.asarray(self.value_before_zero)[-self.ZERO_LEN_REQUIRE:, ...], 0), axis=0)
             self.clear()
             return True
         else:
@@ -222,13 +229,15 @@ class DataHandler:
 
     def abandon_zero(self):
         # 解除置零
-        self.zero[...] = 0
+        self.zero = np.zeros([_ * self.interpolation.interp for _ in self.driver.SENSOR_SHAPE],
+                             dtype=self.driver.DATA_TYPE)
         self.zero_set = False
 
     def set_filter(self, filter_name_frame, filter_name_time):
         try:
             self.filter_frame = self.preset_filters[filter_name_frame]()
             self.filter_time = self.preset_filters[filter_name_time]()
+            self.abandon_zero()
             self.clear()
         except KeyError:
             raise Exception('指定的滤波器不存在')
@@ -247,11 +256,15 @@ class DataHandler:
         assert 0. <= blur <= 8.
         self.interpolation = Interpolation(interpolate, blur, self.driver.SENSOR_SHAPE)
         self.abandon_zero()
+        self.clear()
 
-    def set_calibrator(self, path):
+    def set_calibrator(self, path, forced_to_use_clb=False):
         try:
             self.calibration_adaptor = CalibrateAdaptor(self.driver, ManualDirectionLinearAlgorithm)
-            self.calibration_adaptor.load(path)
+            self.calibration_adaptor.load(path, forced_to_use_clb)
+            self.abandon_zero()
+            self.clear()
+            self.using_calibration = True
             return True
         except Exception as e:
             self.abandon_calibrator()
@@ -259,3 +272,6 @@ class DataHandler:
 
     def abandon_calibrator(self):
         self.calibration_adaptor = CalibrateAdaptor(self.driver, Algorithm)
+        self.abandon_zero()
+        self.clear()
+        self.using_calibration = False

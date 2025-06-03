@@ -4,4 +4,4 @@ from interfaces.multiple_zones.user_interface_double import start
 
 
 if __name__ == "__main__":
-    start("standard")
+    start("usb")

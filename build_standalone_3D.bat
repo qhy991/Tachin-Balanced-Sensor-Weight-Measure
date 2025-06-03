@@ -1,5 +1,5 @@
 call activate sensor_driver_gui
-pyinstaller -D interface_large_sensor_3D.py -i interfaces\resources\logo.ico --add-data "C:\Windows\System32\libusb-1.0.dll;."
+pyinstaller -D -w interface_large_sensor_3D.py -i interfaces\resources\logo.ico --add-data "C:\Windows\System32\libusb-1.0.dll;."
 mkdir dist\interface_large_sensor_3D\_internal\backends
 mkdir dist\interface_large_sensor_3D\_internal\interfaces
 mkdir dist\interface_large_sensor_3D\_internal\interfaces\resources

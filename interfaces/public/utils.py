@@ -22,9 +22,10 @@ RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../r
 
 def catch_exceptions(window, ty, value, tb):
     # 错误重定向为弹出对话框
-    traceback_format = traceback.format_exception(ty, value, tb)
-    traceback_string = "".join(traceback_format)
-    print(traceback_string)
+    # traceback_format = traceback.format_exception(ty, value, tb)
+    # traceback_string = "".join(traceback_format)
+    # print(traceback_string)
+    print(value)
     QtWidgets.QMessageBox.critical(window, "错误", "{}".format(value))
 
 

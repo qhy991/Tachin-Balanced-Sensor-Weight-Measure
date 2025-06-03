@@ -61,19 +61,19 @@ class Window(QtWidgets.QWidget, Ui_Form):
               [218, 57, 7],
               [122, 4, 3]]
 
-    def __init__(self, mode='standard', fixed_range=False):
+    def __init__(self, mode, fixed_range=False):
         """
 
-        :param mode: "standard" or "socket"
+        :param mode: "usb" or "socket"
         """
         super().__init__()
         self.setupUi(self)
         # 重定向提示
         sys.excepthook = self.catch_exceptions
         #
-        self._using_calibration = False
         self.fixed_range = fixed_range
         self.is_running = False
+        self._using_calibration = False
         #
         self.log_y_lim = Y_LIM_INITIAL
         self.line_maximum = self.create_a_line(self.fig_1)
@@ -82,16 +82,17 @@ class Window(QtWidgets.QWidget, Ui_Form):
             0: self.create_an_image(self.fig_image_0),
             1: self.create_an_image(self.fig_image_1)
         }
-        if mode == 'standard':
+        self.mode = mode
+        if mode == 'usb':
             from backends.usb_driver import LargeUsbSensorDriver as SensorDriver
-            self.scaling = log
-            self.__set_using_calibration(False)
         elif mode == 'can':
             from backends.can_driver import Can16SensorDriver as SensorDriver
-            self.scaling = log
-            self.__set_using_calibration(False)
         else:
             raise NotImplementedError()
+        # 标定状态
+        self.scaling = log
+        self.__set_using_calibration(False)
+        # 布局修正
         self.horizontalLayout_2.setStretch(0, 1)
         self.horizontalLayout_2.setStretch(1, 1)
         self.horizontalLayout_2.setStretch(2, 2)
@@ -100,10 +101,11 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.pre_initialize()
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.trigger)
-        self.last_trigger_time = -0.
         #
         self.time_last_image_update = np.uint32(0)
         # 是否处于使用标定状态
+        self.__set_calibrator(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           '../../calibrate_files/default_calibration_file.clb'))
 
     def catch_exceptions(self, ty, value, tb):
         # 错误重定向为弹出对话框
@@ -113,15 +115,20 @@ class Window(QtWidgets.QWidget, Ui_Form):
         QtWidgets.QMessageBox.critical(self, ("Error" if LAN == 'en' else "错误"), "{}".format(value))
         # self.old_hook(ty, value, tb)
 
-    def dump_config(self):
-        save_config()
+    @property
+    def y_lim(self):
+        # 这里经常改
+        if self._using_calibration:
+            return self.data_handler.calibration_adaptor.range()
+        else:
+            return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
     def start(self):
         # 按开始键
         if not self.is_running:
             flag = self.data_handler.connect(self.com_port.text())
             config['port'] = self.com_port.text()
-            self.dump_config()
+            save_config()
             if not flag:
                 return
             self.is_running = True
@@ -132,7 +139,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def stop(self):
         # 按停止键
         config['y_lim'] = self.log_y_lim
-        self.dump_config()
+        save_config()
         if self.is_running:
             self.is_running = False
             if self.timer.isActive():
@@ -246,15 +253,6 @@ class Window(QtWidgets.QWidget, Ui_Form):
         line.get_axis = lambda: ax
         return line
 
-    @property
-    def y_lim(self):
-        # 这里经常改
-        # return [10 ** (-self.log_y_lim[1]), 10 ** (-self.log_y_lim[0])]
-        if self._using_calibration:
-            return [0., 256.]
-        else:
-            return [-self.log_y_lim[1], -self.log_y_lim[0]]
-
     def __apply_y_lim(self):
         for line in [self.line_maximum, self.line_tracing]:
             line.getViewBox().setYRange(*self.y_lim)
@@ -267,6 +265,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
                 ax = line.get_axis()
                 ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
                     [f'{_: .1f}' for _ in values]
+                ax.getAxis('left').label.setPlainText(LABEL_PRESSURE)
+
+            self.scaling = lambda x: x
             self.__apply_y_lim()
         else:
             self._using_calibration = False
@@ -274,6 +275,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
                 ax = line.get_axis()
                 ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
                     [f'{10 ** (-_): .1f}' for _ in values]
+                ax.getAxis('left').label.setPlainText(LABEL_RESISTANCE)
+
+            self.scaling = log
             self.__apply_y_lim()
 
     def create_an_image(self, fig_widget: pyqtgraph.GraphicsLayoutWidget):
@@ -294,8 +298,14 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.button_save_to.setText("End acquisition" if LAN == "en" else "结束采集")
         else:
             self.button_save_to.setText("Acquire to file..." if LAN == "en" else "采集到...")
-        self.com_port.setText('-')
-        self.com_port.setEnabled(False)
+        if self.mode == 'usb':
+            if self.is_running:
+                self.com_port.setEnabled(False)
+        elif self.mode == 'can':
+            pass
+        else:
+            raise NotImplementedError()
+
 
     def __apply_swap(self, data):
         if config['xy_swap']:
@@ -306,7 +316,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def __set_filter(self):
         self.data_handler.set_filter("None" if LAN == "en" else "无", self.combo_filter_time.currentText())
         config['filter_time_index'] = self.combo_filter_time.currentIndex()
-        self.dump_config()
+        save_config()
 
     def __set_interpolate_and_blur(self):
         interpolate = int(self.combo_interpolate.currentText())
@@ -314,14 +324,17 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.data_handler.set_interpolation_and_blur(interpolate=interpolate, blur=blur)
         config['interpolate_index'] = self.combo_interpolate.currentIndex()
         config['blur_index'] = self.combo_blur.currentIndex()
-        self.dump_config()
+        save_config()
 
-    def __set_calibrator(self):
-        path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.csv)")[0]
+    def __set_calibrator(self, path=None):
+        if path is None:
+            path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.clb)")[0]
         if path:
-            flag = self.data_handler.set_calibrator(path)
+            flag = self.data_handler.set_calibrator(path, forced_to_use_clb=True)
             if flag:
+                # self.hand_plot_manager.set_axes_using_calibration(True)
                 self.__set_using_calibration(True)
+                self.scheduled_set_zero = True
 
     def __abandon_calibrator(self):
         self.data_handler.abandon_calibrator()
@@ -342,9 +355,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_set_zero.clicked.connect(self.data_handler.set_zero)
         self.button_abandon_zero.clicked.connect(self.data_handler.abandon_zero)
         self.button_save_to.clicked.connect(self.__trigger_save_button)
+
         # 标定功能
-        # self.button_load_calibration.clicked.connect(self.__set_calibrator)
-        # self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
+        self.button_load_calibration.clicked.connect(lambda: self.__set_calibrator(path=None))
+        self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
 
     def __trigger_save_button(self):
         if self.data_handler.output_file:
@@ -363,19 +377,25 @@ class Window(QtWidgets.QWidget, Ui_Form):
         str_port = config.get('port')
         if not isinstance(str_port, str):
             raise Exception('Config file error' if LAN == "en" else '配置文件出错')
-        self.com_port.setText(config['port'])
+
+        if self.mode == 'usb':
+            self.com_port.setEnabled(True)
+            self.com_port.setText(config['port'])
+        elif self.mode == 'can':
+            self.com_port.setEnabled(False)
+            self.com_port.setText('-')
+        else:
+            raise NotImplementedError()
 
     def trigger(self):
         try:
             self.data_handler.trigger()
-            time_now = time.time()
-            if self.data_handler.smoothed_value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
+            if self.data_handler.value:
                 for idx_plot, plot in self.plots.items():
-                    plot.setImage(self.__apply_swap(self.scaling(np.array(self.data_handler.smoothed_value[-1][idx_plot].T))),
+                    plot.setImage(self.__apply_swap(self.scaling(np.array(self.data_handler.value[-1][idx_plot].T))),
                                   levels=self.y_lim)
                 self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.maximum))
                 self.line_tracing.setData(self.data_handler.t_tracing, self.scaling(self.data_handler.tracing))
-            self.last_trigger_time = time_now
         except USBError:
             self.stop()
             QtWidgets.qApp.quit()

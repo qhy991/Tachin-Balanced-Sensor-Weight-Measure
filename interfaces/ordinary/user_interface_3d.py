@@ -116,9 +116,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self.catch_exceptions
         #
         if mode == 'direct':
-            self.data_handler = DataHandler(LargeUsbSensorDriver, max_len=16, curve_on=False)
-        elif mode == 'socket':
-            self.data_handler = DataHandler(SocketClient)
+            self.data_handler = DataHandler(LargeUsbSensorDriver, max_len=4, curve_on=False)
         else:
             raise NotImplementedError()
         self.fixed_range = fixed_range
@@ -136,7 +134,6 @@ class Window(QtWidgets.QWidget, Ui_Form):
         #
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.trigger)
-        self.last_trigger_time = -0.
         #
         self.time_last_image_update = np.uint32(0)
         # 是否处于使用标定状态
@@ -368,13 +365,11 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def trigger(self):
         try:
             self.data_handler.trigger()
-            time_now = time.time()
-            if self.data_handler.smoothed_value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
-                Z = self.__apply_transform(self.scaling(np.array(self.data_handler.smoothed_value[-1])))
+            if self.data_handler.value:
+                Z = self.__apply_transform(self.scaling(np.array(self.data_handler.value[-1])))
                 Z = (np.clip(Z, min(self.y_lim), max(self.y_lim)) - min(self.y_lim)) / (max(self.y_lim) - min(self.y_lim))
                 colors = create_color_map(Z)
                 self.surface.setData(z=Z * 0.1, colors=colors[:, :, :3])
-            self.last_trigger_time = time_now
         except USBError:
             self.stop()
             QtWidgets.qApp.quit()

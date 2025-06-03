@@ -6,13 +6,10 @@
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
-import time
 from interfaces.ordinary.layout.layout import Ui_Form
-import pyqtgraph
 #
 from usb.core import USBError
 import sys
-import traceback
 import numpy as np
 from data_processing.data_handler import DataHandler
 #
@@ -22,14 +19,15 @@ from interfaces.public.utils import (set_logo,
                                      apply_swap)
 
 #
-LABEL_TIME = 'T/sec'
-LABEL_PRESSURE = 'p/kPa'
-LABEL_VALUE = 'Value'
-LABEL_RESISTANCE = 'Resistance/(kΩ)'
+LABEL_TIME = '时间/s'
+LABEL_PRESSURE = '单点力/N'
+LABEL_VALUE = '值'
+LABEL_RESISTANCE = '电阻/(kΩ)'
 Y_LIM_INITIAL = config['y_lim']
+AVAILABLE_FILTER_NAMES = ['无', '中值-0.2s', '中值-1s', '均值-0.2s', '均值-1s', '单向抵消-轻', '单向抵消-中', '单向抵消-重']
 
 MINIMUM_Y_LIM = 0.0
-MAXIMUM_Y_LIM = 5.0
+MAXIMUM_Y_LIM = 5.5
 assert Y_LIM_INITIAL.__len__() == 2
 assert Y_LIM_INITIAL[0] >= MINIMUM_Y_LIM - 0.2
 assert Y_LIM_INITIAL[1] <= MAXIMUM_Y_LIM + 0.2
@@ -55,7 +53,6 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 重定向提示
         sys.excepthook = self._catch_exceptions
         #
-        self._using_calibration = False
         self.is_running = False
         #
         self.log_y_lim = Y_LIM_INITIAL
@@ -81,6 +78,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
         elif mode == 'can':
             from backends.can_driver import Can16SensorDriver
             self.data_handler = DataHandler(Can16SensorDriver)
+        elif mode == 'low_framerate':
+            from backends.special_usb_driver import SimulatedLowFrameUsbSensorDriver
+            self.data_handler = DataHandler(SimulatedLowFrameUsbSensorDriver)
         else:
             raise NotImplementedError()
         self.scaling = log
@@ -159,7 +159,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     @property
     def y_lim(self):
-        if self._using_calibration:
+        if self.data_handler.using_calibration:
             return self.data_handler.calibration_adaptor.range()
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
@@ -171,7 +171,6 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def __set_using_calibration(self, b):
         if b:
-            self._using_calibration = True
             for line in [self.line_maximum, self.line_tracing]:
                 ax = line.get_axis()
                 ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
@@ -180,7 +179,6 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.scaling = lambda x: x
             self.__apply_y_lim()
         else:
-            self._using_calibration = False
             for line in [self.line_maximum, self.line_tracing]:
                 ax = line.get_axis()
                 ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
@@ -202,6 +200,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.com_port.setEnabled(False)
 
     def __set_filter(self):
+        # 为self.combo_filter_time逐项添加选项
         self.data_handler.set_filter("无", self.combo_filter_time.currentText())
         config['filter_time_index'] = self.combo_filter_time.currentIndex()
         save_config()
@@ -215,7 +214,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         save_config()
 
     def __set_calibrator(self):
-        path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.csv)")[0]
+        path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.csv;*.clb)")[0]
         if path:
             flag = self.data_handler.set_calibrator(path)
             if flag:
@@ -228,7 +227,11 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def initialize_buttons(self):
         self.button_start.clicked.connect(self.start)
         self.button_stop.clicked.connect(self.stop)
-        self.combo_filter_time.setCurrentIndex(config.get('filter_time_index'))
+        for name in AVAILABLE_FILTER_NAMES:
+            self.combo_filter_time.addItem(name)
+        current_idx_filter_time = config.get('filter_time_index')
+        if current_idx_filter_time < self.combo_filter_time.count():
+            self.combo_filter_time.setCurrentIndex(current_idx_filter_time)
         self.combo_interpolate.setCurrentIndex(config.get('interpolate_index'))
         self.combo_blur.setCurrentIndex(config.get('blur_index'))
         self.__set_filter()
@@ -265,11 +268,12 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def trigger(self):
         try:
             self.data_handler.trigger()
-            if self.data_handler.value:
-                self.plot.setImage(apply_swap(self.scaling(np.array(self.data_handler.value[-1].T))),
-                                   levels=self.y_lim)
-                self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.maximum))
-                self.line_tracing.setData(self.data_handler.t_tracing, self.scaling(self.data_handler.tracing))
+            with self.data_handler.lock:
+                if self.data_handler.value:
+                    self.plot.setImage(apply_swap(self.scaling(np.array(self.data_handler.value[-1].T))),
+                                       levels=self.y_lim)
+                    self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.maximum))
+                    self.line_tracing.setData(self.data_handler.t_tracing, self.scaling(self.data_handler.tracing))
         except USBError:
             self.stop()
             QtWidgets.qApp.quit()

@@ -46,7 +46,6 @@ class SerialBackend:
     def read(self):
         try:
             last_message = [int(_) for _ in self.serial.read()]
-            print([hex(_) for _ in last_message])
         except Exception as e:
             self.stop()
             self.err_queue.append(e)

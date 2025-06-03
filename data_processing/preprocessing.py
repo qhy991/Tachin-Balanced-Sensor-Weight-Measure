@@ -1,9 +1,4 @@
-from scipy import signal
 import numpy as np
-
-
-# lfilter_zi
-
 
 # 添加一个装饰器。如果filter输入的x不是一个numpy.ndarray，进行某种处理
 def check_input(func):
@@ -26,15 +21,28 @@ class Filter:
         else:
             self.SENSOR_SHAPE = sensor_class.SENSOR_SHAPE
             self.DATA_TYPE = sensor_class.DATA_TYPE
+        self.order = 0
+
+    @property
+    def sensor_class(self):
+        return {'SENSOR_SHAPE': self.SENSOR_SHAPE, 'DATA_TYPE': self.DATA_TYPE}
 
     @check_input
     def filter(self, x):
         return x
 
-    def __mul__(self, other):
-        return _CombinedFilter({'SENSOR_SHAPE': self.SENSOR_SHAPE, 'DATA_TYPE': self.DATA_TYPE},
-                               self, other)
+    def reset(self):
+        pass
 
+    def __mul__(self, other):
+        if isinstance(other, Filter):
+            return _CombinedFilter({'SENSOR_SHAPE': self.SENSOR_SHAPE, 'DATA_TYPE': self.DATA_TYPE},
+                                   self, other)
+        elif isinstance(float(other), float):
+            return _ResizedFilter({'SENSOR_SHAPE': self.SENSOR_SHAPE, 'DATA_TYPE': self.DATA_TYPE},
+                                  self, other)
+        else:
+            raise TypeError("不支持的操作数类型")
 
 class _CombinedFilter(Filter):
     def __init__(self, sensor_class, this, other, *args, **kwargs):
@@ -45,6 +53,16 @@ class _CombinedFilter(Filter):
     @check_input
     def filter(self, x):
         return self.filter2.filter(self.filter1.filter(x))
+
+class _ResizedFilter(Filter):
+    def __init__(self, sensor_class, this, rate, *args, **kwargs):
+        super().__init__(sensor_class, *args, **kwargs)
+        self.this = this
+        self.rate = rate
+
+    @check_input
+    def filter(self, x):
+        return self.rate * self.this.filter(x) + (1 - self.rate) * x
 
 
 class RCFilter(Filter):
@@ -73,6 +91,10 @@ class RCFilterHP(Filter):
         y_high = x - self.y_low
         return y_high
 
+    def reset(self):
+        super().reset()
+        self.y_low = 0
+
 
 class RCFilterOneSide(Filter):
     def __init__(self, sensor_class, alpha=0.75, *args, **kwargs):
@@ -91,42 +113,12 @@ class RCFilterOneSide(Filter):
         return self.y
 
 
-class RCFilterLimited(Filter):
-    def __init__(self, sensor_class, alpha=0.25, lim=0.25, *args, **kwargs):
-        super(RCFilterLimited, self).__init__(sensor_class)
-        self.alpha = alpha
-        self.lim = lim
-        self.y = 0
-
-    @check_input
-    def filter(self, x):
-        self.y = self.alpha * x + (1. - self.alpha) * self.y
-        # 看看阶数
-        return x - self.y
-
-
-# ButterworthFilter
-class ButterworthFilter(Filter):
-    def __init__(self, sensor_class, cutoff, fs, order, *args, **kwargs):
-        super(ButterworthFilter, self).__init__(sensor_class)
-        self.b, self.a = signal.butter(order, cutoff / (fs / 2), btype='lowpass', analog=False)
-        self.zi = [[signal.lfilter_zi(self.b, self.a) for _ in range(self.SENSOR_SHAPE[1])]
-                   for _ in range(self.SENSOR_SHAPE[0])]
-
-    @check_input
-    def filter(self, x):
-        filtered = np.ndarray(self.SENSOR_SHAPE, dtype=self.DATA_TYPE)
-        for i in range(self.SENSOR_SHAPE[0]):
-            for j in range(self.SENSOR_SHAPE[1]):
-                filtered[i, j], self.zi[i][j] = signal.lfilter(self.b, self.a, [x[i, j]], zi=self.zi[i][j])
-        return filtered
-
-
 class MedianFilter(Filter):
     def __init__(self, sensor_class, order):
         super(MedianFilter, self).__init__(sensor_class)
         self.passed_values = np.zeros((order + 1, self.SENSOR_SHAPE[0], self.SENSOR_SHAPE[1]),
                                       dtype=self.DATA_TYPE)
+        self.order = order
 
     @check_input
     def filter(self, x):
@@ -166,6 +158,7 @@ class CrosstalkFilter(Filter):
     @check_input
     def filter(self, x):
         x = np.maximum(x.astype(float), 1.)
+        x_original = x
         for _ in range(self.iteration_count):
             # mean = np.mean(x * self.size)
             by_row = np.sum(x, axis=1, keepdims=True)
@@ -175,21 +168,27 @@ class CrosstalkFilter(Filter):
             # crossed = by_row_weighted ** -1 + by_col_weighted ** -1 + mean ** -1
             crossed = by_row_weighted ** -1 + by_col_weighted ** -1
             x = np.maximum(x - crossed ** -1 * self.weight, 1.)
+        assert np.all(x * self.length_modification <= x_original)
         return x * self.length_modification
 
+class ExtensionFilter(Filter):
 
-class BlurFilter(Filter):
-
-    def __init__(self, sensor_class, kernel_size, radius):
-        super(BlurFilter, self).__init__(sensor_class)
-        coord = np.arange(kernel_size) - kernel_size // 2 + 0.5
-        dist_sq = coord.reshape(-1, 1) ** 2 + coord.reshape(1, -1) ** 2
-        kernel = np.exp(-dist_sq / radius)
-        self.kernel = kernel / np.sum(kernel)
+    def __init__(self, sensor_class, weight_row, weight_col, iteration_count):
+        super().__init__(sensor_class)
+        self.weight_row = weight_row
+        self.weight_col = weight_col
+        assert weight_row + weight_col < 1.
+        self.iteration_count = iteration_count
 
     @check_input
     def filter(self, x):
-        return signal.convolve2d(x, self.kernel, mode='same')
+        x_original = x
+        x = np.maximum(x, 0)
+        for _ in range(self.iteration_count):
+            by_row = np.sum(x, axis=1, keepdims=True) / self.SENSOR_SHAPE[1]
+            by_col = np.sum(x, axis=0, keepdims=True) / self.SENSOR_SHAPE[0]
+            x = np.maximum(x - by_row * self.weight_row - by_col * self.weight_col, 0)
+        return x
 
 
 class SideFilter(Filter):
@@ -207,6 +206,15 @@ class SideFilter(Filter):
         x[:, :self.width] *= np.linspace(0, 1, self.width)[None, :]
         x[:, -self.width:] *= np.linspace(1, 0, self.width)[None, :]
         return x
+
+class FactorFilter(Filter):
+
+    def __init__(self, sensor_class, dim, rate, reverse):
+        super(FactorFilter, self).__init__(sensor_class)
+        self.dim = dim
+        self.rate = rate
+        self.reverse = reverse
+
 
 
 def build_preset_filters(sensor_class):
@@ -226,6 +234,9 @@ def build_preset_filters(sensor_class):
         '并联抵消-轻': lambda: CrosstalkFilter(sensor_class, None, 0.2, 3),
         '并联抵消-中': lambda: CrosstalkFilter(sensor_class, None, 0.3, 4),
         '并联抵消-重': lambda: CrosstalkFilter(sensor_class, None, 0.4, 5),
+        '单向抵消-轻': lambda: ExtensionFilter(sensor_class, 0.1, 0.1, 5),
+        '单向抵消-中': lambda: ExtensionFilter(sensor_class, 0.2, 0.2, 10),
+        '单向抵消-重': lambda: ExtensionFilter(sensor_class, 0.3, 0.3, 20),
         'None': lambda: Filter(sensor_class),
         'Median-0.2s': lambda: MedianFilter(sensor_class, order=2),
         'Median-1s': lambda: MedianFilter(sensor_class, order=20),
@@ -238,7 +249,7 @@ def build_preset_filters(sensor_class):
 
 if __name__ == '__main__':
     arr = [0, 1, 2, 3, 4, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5]
-    f = RCFilterOneSide(sensor_class={"SENSOR_SHAPE": (1, 1), "DATA_TYPE": '>f2'}, alpha=0.)
+    f = RCFilterOneSide(sensor_class={"SENSOR_SHAPE": (1, 1), "DATA_TYPE": float}, alpha=0.)
     for v in arr:
         vv = f.filter(np.array([[v]]))
         print(v, vv, f.y)

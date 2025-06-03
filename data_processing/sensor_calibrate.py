@@ -3,6 +3,7 @@ import os
 from scipy.interpolate import interp1d
 from scipy.optimize import minimize
 
+
 abs_dir = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -137,76 +138,6 @@ class Algorithm:
         return sensor_readings, forces
 
 
-class ManualInterpolationAlgorithm(Algorithm):
-
-    IS_NOT_IDLE = False
-
-    def __init__(self, sensor_class, calibration):
-        super().__init__(sensor_class, calibration)
-        self.interp = None
-        self.xx = None
-        self.yy = None
-
-    def fit(self, ignore=None, extra=None):
-        # extern按_[0]从小到大排列
-        if extra is None:
-            return
-        extra.sort(key=lambda _: _[0])
-        print(extra)
-        xx = [_[0] for _ in extra]
-        yy = [_[1] for _ in extra]
-        if not xx or not yy:
-            return
-        xx = [10 ** _ for _ in xx]
-        self.xx = xx
-        self.yy = yy
-        # xx从小到大排列，yy对应
-        self.interp = interp1d(xx, yy, kind='linear',
-                               bounds_error=False, fill_value=(yy[0], yy[-1]))
-        self.apply()
-
-    def get_range(self):
-        if self.xx is None or self.yy is None:
-            return [0, 1]
-        return [self.xx[0], self.xx[-1]]
-
-    def transform(self, sensor_reading):
-        force_est = self.interp(sensor_reading)
-        return force_est
-
-    def clear_streaming(self):
-        pass
-
-    def transform_streaming(self, sensor_reading):
-        force_est = self.interp(np.array(sensor_reading))[0]
-        return force_est
-
-    def save(self):
-        text_all = ''
-        for point in zip(self.xx, self.yy):
-            voltage = point[0] / self.sensor_class.SCALE
-            pressure = point[1] * FORCE_SCALING
-            text = f'{np.int16(voltage)}, {np.int16(pressure)}\n'
-            text_all += text
-        return text_all
-
-    def load(self, content):
-        lines = content.split('\n')
-        xx = []
-        yy = []
-        for line in lines:
-            if not line:
-                continue
-            voltage, pressure = line.split(',')
-            xx.append(int(voltage) * self.sensor_class.SCALE)
-            yy.append(int(pressure) / FORCE_SCALING)
-        self.xx = xx
-        self.yy = yy
-        self.interp = interp1d(xx, yy, kind='linear',
-                               bounds_error=False, fill_value=(yy[0], yy[-1]))
-        return True
-
-
 class ManualDirectionLinearAlgorithm(Algorithm):
 
     IS_NOT_IDLE = False
@@ -220,7 +151,7 @@ class ManualDirectionLinearAlgorithm(Algorithm):
         self.nodes_hysteresis = np.ndarray((0, ))
         #
         self.streaming_voltage = None
-        self.streaming_trend = np.zeros(shape=sensor_class.SENSOR_SHAPE, dtype='>f2')
+        self.streaming_trend = np.zeros(shape=sensor_class.SENSOR_SHAPE, dtype=float)
 
     def get_range(self):
         if self.nodes_center.__len__() == 0:
@@ -261,15 +192,18 @@ class ManualDirectionLinearAlgorithm(Algorithm):
     def calculate_estimated_force_streaming(self, sensor_reading):
         if self.streaming_voltage is not None:
             fade_rate = np.exp(-abs(sensor_reading - self.streaming_voltage) / self.record_voltage)
+            # if np.any(np.isnan(fade_rate)):
+            #     fade_rate[...] = 0.
             self.streaming_trend = self.streaming_trend * fade_rate \
-                                     + np.sign(sensor_reading - self.streaming_voltage) * (1 - fade_rate)
+                                     + np.sign(sensor_reading - self.streaming_voltage) * (-fade_rate + 1.)
         self.streaming_voltage = sensor_reading
         interp_center = interp1d(self.segments, self.nodes_center, kind='linear',
-                                 bounds_error=False, fill_value=(self.nodes_center[0], self.nodes_center[-1]))
+                                 bounds_error=False,
+                                 fill_value=(self.nodes_center[0], self.nodes_center[-1]))
         interp_hysteresis = interp1d(self.segments, self.nodes_hysteresis, kind='linear',
                                      bounds_error=False,
                                      fill_value=(self.nodes_hysteresis[0], self.nodes_hysteresis[-1]))
-        force_est = interp_center(sensor_reading) + interp_hysteresis(sensor_reading) * self.streaming_trend
+        force_est = sensor_reading.__array_wrap__(interp_center(sensor_reading) + interp_hysteresis(sensor_reading) * self.streaming_trend)
         return force_est
 
     def fit(self, ignore=None, extra=None):
@@ -371,3 +305,4 @@ class ManualDirectionLinearAlgorithm(Algorithm):
         self.nodes_center = np.array(nodes_center)
         self.nodes_hysteresis = np.array(nodes_hysteresis)
         return True
+

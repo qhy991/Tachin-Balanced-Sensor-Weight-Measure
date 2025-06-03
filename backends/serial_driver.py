@@ -44,7 +44,7 @@ class SerialSensorDriver(AbstractSensorDriver):
 
 class Serial16SensorDriver(SerialSensorDriver):
 
-    SENSOR_SHAPE = (32, 32)
+    SENSOR_SHAPE = (16, 16)
 
     def __init__(self):
         config_array = json.load(open(os.path.dirname(__file__) + '/config_array_16.json', 'rt'))

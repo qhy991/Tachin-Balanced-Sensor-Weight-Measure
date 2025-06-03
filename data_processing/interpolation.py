@@ -16,9 +16,8 @@ class Interpolation:
         if isinstance(data, np.ndarray):
             data = data.astype(float)
             if self.blur > 0:
-                # data = median_filter(data, size=2 * int(self.blur) + 1)
-                # data = median_filter(data, size=3)
-                data = gaussian_filter(data, sigma=self.blur)
+                # data = median_filter(data, size=3, mode='constant', cval=0)
+                data = gaussian_filter(data, sigma=self.blur, mode='constant', cval=0)
             data = self.zoom(data)
             return data
         else:
@@ -31,3 +30,7 @@ class Interpolation:
         zoom_factors = self.interp
         zoomed_data = zoom(data, zoom_factors, order=1)
         return zoomed_data
+
+if __name__ == '__main__':
+    a = np.array([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]])
+    print(median_filter(a, size=3, mode='constant', cval=0))

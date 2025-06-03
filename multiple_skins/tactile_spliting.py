@@ -1,5 +1,8 @@
 import copy
 
+# disable any warnings
+import warnings
+warnings.filterwarnings("ignore")
 import numpy as np
 import os
 MAX_LEN = 64
@@ -13,26 +16,30 @@ class SplitDataDict:
     # 注意，使用apply_filter_for_each对各分片应用滤波器时，处理机制会较为特殊
 
     def __init__(self, full_data, range_mapping: dict):
-        self.full_data = full_data  # 全阵列
+        self.full_data = np.zeros(shape=full_data.shape)
+        self.full_data[...] = full_data.__array__()  # 全阵列
         self.range_mapping = range_mapping
         self.unit_filter_objs = []
 
     # 重载四则运算
 
     def __add__(self, other):
-        return SplitDataDict(self.full_data + other, self.range_mapping)
+        return self.__array_wrap__(self.full_data + np.array(other))
 
     def __sub__(self, other):
-        return SplitDataDict(self.full_data - other, self.range_mapping)
+        return self.__array_wrap__(self.full_data - np.array(other))
 
     def __mul__(self, other):
-        return SplitDataDict(self.full_data * other, self.range_mapping)
+        return self.__array_wrap__(self.full_data * np.array(other))
 
     def __truediv__(self, other):
-        return SplitDataDict(self.full_data / other, self.range_mapping)
+        return self.__array_wrap__(self.full_data / np.array(other))
+
+    def __neg__(self):
+        return self.__array_wrap__(-self.full_data)
 
     def astype(self, dtype):
-        return SplitDataDict(self.full_data.astype(dtype), self.range_mapping)
+        return self.__array_wrap__(self.full_data.astype(dtype))
 
     @property
     def shape(self):
@@ -41,8 +48,17 @@ class SplitDataDict:
     def __array__(self):
         return self.full_data
 
+    def __array_wrap__(self, array, *args, **kwargs):
+        if array.shape:
+            return SplitDataDict(array, range_mapping=self.range_mapping)
+        else:
+            return array
+
+    def __abs__(self):
+        return self.__array_wrap__(np.abs(self.full_data))
+
     def apply_filter(self, filter_obj: callable, **kwargs):
-        self.full_data = filter_obj(self.full_data, **kwargs)
+        self.full_data[...] = filter_obj(self.full_data, **kwargs)
 
     def apply_filter_for_each(self, filters_obj: dict, **kwargs):
         self.unit_filter_objs.append(filters_obj, **kwargs)

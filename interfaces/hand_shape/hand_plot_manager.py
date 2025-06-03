@@ -8,7 +8,6 @@ import numpy as np
 from PIL import Image, ImageDraw
 from collections import deque
 import pyqtgraph
-from data_processing.preprocessing import MedianFilter
 from interfaces.hand_shape.feature_extractor import FingerFeatureExtractor
 from data_processing.interpolation import Interpolation
 from utils.performance_monitor import Ticker
@@ -19,6 +18,11 @@ legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
 STANDARD_PEN = pyqtgraph.mkPen('k')
 from config import config, save_config, get_config_mapping
 
+DISP_THRE = 0.08
+
+MINIMUM_Y_LIM = 0
+MAXIMUM_Y_LIM = 5
+
 class HandPlotManager:
 
     def __init__(self, widget: pyqtgraph.widgets.RawImageWidget.RawImageWidget,
@@ -27,6 +31,7 @@ class HandPlotManager:
                  config_mapping, image,
                  downsample=1):
 
+        self.lock = threading.Lock()
         self.cmap = pyqtgraph.ColorMap(np.linspace(0, 1, 17), (np.array(config_mapping['color_map']) * 255).astype(int))
         pixel_mapping = config_mapping['pixel_mapping']
         range_mapping = config_mapping['range_mapping']
@@ -67,17 +72,14 @@ class HandPlotManager:
                      int(k)]
             for k in range_mapping.keys()
         }
-        self.proj_funcs = {idx: self.make_projection_function(rect) for idx, rect in rects.items()}
+        self.proj_funcs = {idx: self.make_projection_function(rect, None) for idx, rect in rects.items()}
         # 曲线图
         ax: pyqtgraph.PlotItem = fig_widget_1d.addPlot()
-        # ax.setLabel(axis='left', text='Resistance (min) (kΩ)' if LAN == "en" else '电阻（最小值） (kΩ)')
-        ax.setLabel(axis='left', text='Contact strength' if LAN == "en" else '接触强度')
         ax.getAxis('left').enableAutoSIPrefix(False)
         ax.setLabel(axis='bottom', text='Time (s)' if LAN == "en" else '时间 (s)')
         # ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
         #     [f'{10 ** (-_): .1f}' for _ in values]
         # ax.getViewBox().setYRange(-self.log_y_lim[1], -self.log_y_lim[0])
-        ax.getViewBox().setYRange(0, 256)
         fig_widget_1d.setBackground('w')
         ax.getViewBox().setBackgroundColor([255, 255, 255])
         ax.getAxis('bottom').setPen(STANDARD_PEN)
@@ -94,9 +96,8 @@ class HandPlotManager:
                                         name=config_mapping['names'][idx])
                       for idx in range_mapping.keys()}
         # 存储
-        self.filters = {int(idx): MedianFilter({'SENSOR_SHAPE': (1, 1), 'DATA_TYPE': float}, 2)
-                        for idx in range_mapping.keys()}
         max_len = self.dd.max_len
+        self.summed_value = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
         self.region_max = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
         self.region_x_diff = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
         self.region_y_diff = {int(idx): deque(maxlen=max_len) for idx in range_mapping.keys()}
@@ -104,20 +105,21 @@ class HandPlotManager:
         #
         self.img_view.wheelEvent = self.__on_mouse_wheel
         #
-        self.lock = threading.Lock()
-        #
+        self.set_axes_using_calibration(False)
         threading.Thread(target=self.process_forever, daemon=True).start()
         #
         self.img_view.resizeEvent = self.resize_event
         self.resize_transform = []  # 包括了缩放的比例和偏移量
         # 计算用
-        self.finger_feature_extractors = {int(k): FingerFeatureExtractor(15, 4, 0.995, 10., 1.0)
+        self.finger_feature_extractors = {int(k):
+                                              FingerFeatureExtractor(10, 4, 0.995, 10., 1.0)
                                           for k in config_mapping['range_mapping'].keys()}
 
     def clear(self):
         with self.lock:
             self.processing_image = self.base_image.copy()
             for idx in self.lines.keys():
+                self.summed_value[idx].clear()
                 self.region_max[idx].clear()
                 self.region_x_diff[idx].clear()
                 self.region_y_diff[idx].clear()
@@ -133,6 +135,13 @@ class HandPlotManager:
         mask *= scale
         return mask
 
+    @property
+    def y_lim(self):
+        if self.dd.using_calibration:
+            return self.dd.calibration_adaptor.range()
+        else:
+            return self.log_y_lim
+
     def save_y_lim(self):
         config['y_lim'] = (self.log_y_lim[0], self.log_y_lim[1])
         save_config()
@@ -146,11 +155,11 @@ class HandPlotManager:
         if width_border == 0 or height_border == 0:
             return
         if width_origin / height_origin > width_border / height_border:
-            print("宽度占满")
+            # print("宽度占满")
             self.resize_transform = [width_border / width_origin, width_border / width_origin,
                                      0, 0.5 * (height_border - width_border / width_origin * height_origin)]
         else:
-            print("高度占满")
+            # print("高度占满")
             self.resize_transform = [height_border / height_origin, height_border / height_origin,
                                      0.5 * (width_border - height_border / height_origin * width_origin), 0]
         # 强制1:1
@@ -178,7 +187,7 @@ class HandPlotManager:
     def reset_image(self):
         self.processing_image = self.base_image.copy()
 
-    def make_projection_function(self, rect):
+    def make_projection_function(self, rect, filter=None):
         """依据rect预计算投影函数"""
         # 计算边向量
         base_point = rect[0]
@@ -198,10 +207,13 @@ class HandPlotManager:
         pass
 
         def projection_function(data: np.ndarray):
-            # data = data * rect[3]
-            data = Interpolation(2, 1.0, data.shape).smooth(data * rect[3])
-            data = np.log(np.maximum(data, 1e-6)) / np.log(10)
-            data = np.clip((data + self.log_y_lim[1]) / (self.log_y_lim[1] - self.log_y_lim[0]), 0., 1.)
+            # data = np.log(np.maximum(data, 1e-6)) / np.log(10)
+            y_lim = self.y_lim
+            if filter is not None:
+                data = filter.filter(data)
+            data = (data - y_lim[0]) / (y_lim[1] - y_lim[0])
+            data = Interpolation(2, 0.5, data.shape).smooth(data * rect[3])
+            data = np.clip((data - DISP_THRE) * 1.5, 0., 1.)
             img_original = Image.fromarray((self.cmap.map(data.T, mode=float) * 255.).astype(np.uint8),
                                            mode='RGBA')
             img_scaled = img_original.resize((int(new_shape[0] * self.resize_transform[0]),
@@ -246,7 +258,7 @@ class HandPlotManager:
         return projection_function
 
     def __on_mouse_wheel(self, event: QWheelEvent):
-        return
+        # return
         if not config['fixed_range']:
             # 当鼠标滚轮滚动时，调整图像的显示范围
             if event.angleDelta().y() > 0:
@@ -256,7 +268,7 @@ class HandPlotManager:
                 if self.log_y_lim[0] > MINIMUM_Y_LIM:
                     self.log_y_lim = (self.log_y_lim[0] - 0.1, self.log_y_lim[1] - 0.1)
             self.log_y_lim = (round(self.log_y_lim[0], 1), round(self.log_y_lim[1], 1))
-            self.ax.getViewBox().setYRange(-self.log_y_lim[1], -self.log_y_lim[0])
+            # self.ax.getViewBox().setYRange(-self.log_y_lim[1], -self.log_y_lim[0])
             self.save_y_lim()
 
     def process_forever(self):
@@ -286,10 +298,12 @@ class HandPlotManager:
                 # max_value = np.max(data)
                 # max_value = np.log(np.maximum(max_value, 1e-6)) / np.log(10.)
                 # 新的
+                summed_value = np.sum(np.maximum(data - DISP_THRE, 0.))
                 max_value = self.finger_feature_extractors[idx](data)['contact_strength']
                 x_diff = self.finger_feature_extractors[idx](data)['center_x_diff']
                 y_diff = self.finger_feature_extractors[idx](data)['center_y_diff']
-                self.region_max[idx].append(max_value)
+                self.summed_value[idx].append(summed_value)
+                self.region_max[idx].append(max([max_value, 20]) - 20)
                 self.region_x_diff[idx].append(x_diff)
                 self.region_y_diff[idx].append(y_diff)
             self.lock.release()
@@ -305,7 +319,33 @@ class HandPlotManager:
             self.img_view.setImage(self.current_image)
             self.current_image = None
             for idx, line in self.lines.items():
-                line.setData(self.time, self.region_max[idx])
+                if self.dd.using_calibration:
+                    line.setData(self.time, self.summed_value[idx])
+                else:
+                    line.setData(self.time, self.region_max[idx])
 
             self.lock.release()
 
+    def set_axes_using_calibration(self, b):
+        if b:
+            self.clear()
+            self.ax.setLabel(axis='left', text='总力(N)')
+            # 设置Y轴自由
+            self.ax.getViewBox().setYRange(0, 0.1)
+            self.ax.enableAutoRange(axis=pyqtgraph.ViewBox.YAxis)
+
+            def update_y_range():
+                current_range = self.ax.viewRange()[1]  # 获取当前Y轴范围
+                if current_range[1]  < 0.1:  # 如果范围不足1
+                    new_range = (0., 0.1)
+                    self.ax.sigRangeChanged.disconnect(update_y_range)
+                    self.ax.getViewBox().setYRange(new_range[0], new_range[1])
+                    self.ax.sigRangeChanged.connect(update_y_range)
+                else:
+                    self.ax.enableAutoRange(axis=pyqtgraph.ViewBox.YAxis)
+
+            self.ax.sigRangeChanged.connect(update_y_range)  # 监听范围变化
+        else:
+            self.clear()
+            self.ax.setLabel(axis='left', text='接触强度')
+            self.ax.getViewBox().setYRange(0, 200)

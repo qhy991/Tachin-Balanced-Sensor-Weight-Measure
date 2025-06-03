@@ -6,10 +6,8 @@ LAN = 'chs'
 import threading
 
 from PyQt5 import QtCore, QtWidgets, QtGui
-if LAN == "en":
-    from interfaces.hand_shape.layout.layout_en import Ui_Form
-else:
-    from interfaces.hand_shape.layout.layout_3D import Ui_Form
+# from interfaces.hand_shape.layout.layout_3D import Ui_Form
+from interfaces.hand_shape.layout.layout import Ui_Form
 import pyqtgraph
 import sys
 import time
@@ -22,15 +20,22 @@ from config import config, save_config, get_config_mapping
 from collections import deque
 from usb.core import USBError
 from multiple_skins.tactile_spliting import get_split_driver_class
-from data_processing.preprocessing import Filter, MedianFilter, RCFilterHP
-from interfaces.hand_shape.hand_plot_manager_3D import HandPlotManager
+from data_processing.preprocessing import Filter, MedianFilter, RCFilterHP, SideFilter
+# from interfaces.hand_shape.hand_plot_manager_3D import HandPlotManager
+from interfaces.hand_shape.hand_plot_manager import HandPlotManager
+
+from data_processing.preprocessing import Filter, ExtensionFilter, MeanFilter
+from data_processing.experimental_preprocessing import WeightRevisionForEach as StatisticalFilter
+
+
+from interfaces.public.utils import (set_logo,
+                                     config, save_config, catch_exceptions,
+                                     apply_swap)
 
 STR_CONNECTED = "Connected" if LAN == "en" else "已连接"
 STR_DISCONNECTED = "Disconnected" if LAN == "en" else "未连接"
 
 #
-MINIMUM_Y_LIM = 0
-MAXIMUM_Y_LIM = 4
 TRIGGER_TIME_RECORD_LENGTH = 10
 
 RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'resources')
@@ -45,13 +50,13 @@ class Window(QtWidgets.QWidget, Ui_Form):
         super().__init__()
         self.setupUi(self)
         # 重定向提示
-        sys.excepthook = self.catch_exceptions
+        sys.excepthook = self._catch_exceptions
         #
         if mode == 'zw':
             from backends.usb_driver import ZWUsbSensorDriver as SensorDriver
             # 修改horizontalLayout_3的layoutStretch
             # self.horizontalLayout_3.setStretch(3, 2)
-        elif mode == 'zy':
+        elif mode in ['zy', 'zr']:
             from backends.usb_driver import ZYUsbSensorDriver as SensorDriver
             self.horizontalLayout_3.setStretch(0, 1)
             self.horizontalLayout_3.setStretch(1, 1)
@@ -67,10 +72,26 @@ class Window(QtWidgets.QWidget, Ui_Form):
             raise Exception("Invalid mode")
         config_mapping = get_config_mapping(mode)
         self.data_handler = DataHandler(get_split_driver_class(SensorDriver, config_mapping), max_len=256)
-        # self.data_handler.set_filter(filter_name_frame="无", filter_name_time="中值-0.2s")
-        self.data_handler.filter_time = Filter(self.data_handler.driver)
+        self.data_handler.filter_time = MedianFilter(self.data_handler.driver, order=5)
         self.data_handler.filter_frame = Filter(self.data_handler.driver)
-        self.data_handler.filter_after_zero = RCFilterHP(self.data_handler.driver, alpha=0.0001)
+        #
+        if mode == 'zv':
+            filters = {
+                int(idx): SideFilter({'SENSOR_SHAPE': self.data_handler.driver.get_zeros(int(idx)).shape,
+                                      'DATA_TYPE': float},
+                                     width=2)
+                for idx in self.data_handler.driver.range_mapping.keys()
+            }
+            for idx, filter in filters.items():
+                filters[idx] = filter * ExtensionFilter(
+                {'SENSOR_SHAPE': self.data_handler.driver.get_zeros(int(idx)).shape, 'DATA_TYPE': float},
+                weight_row=0.0, weight_col=0.2, iteration_count=10)
+            # filters[11] = (StatisticalFilter(filters[11].sensor_class, '0517')) * filters[11]
+            self.data_handler.filters_for_each = filters
+
+        #
+        # self.data_handler.filter_after_zero = RCFilterHP(self.data_handler.driver, alpha=0.0001)
+        self.data_handler.filter_after_zero = Filter(self.data_handler.driver)
         self.is_running = False
         #
         base_image = Image.open(os.path.join(RESOURCE_FOLDER, f'hand_{mode}.png')).convert('RGBA')
@@ -90,6 +111,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.real_exit = False
         #
         self.scheduled_set_zero = False
+        self.__set_calibrator(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           '../../calibrate_files/default_calibration_file.clb'))
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_F11:
@@ -100,12 +123,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
         else:
             super().keyPressEvent(event)
 
-    def catch_exceptions(self, ty, value, tb):
-        traceback_format = traceback.format_exception(ty, value, tb)
-        traceback_string = "".join(traceback_format)
-        print(traceback_string)
-        QtWidgets.QMessageBox.critical(self, "Error" if LAN == "en" else "错误", "{}".format(value))
-        # self.old_hook(ty, value, tb)
+    def _catch_exceptions(self, ty, value, tb):
+        catch_exceptions(self, ty, value, tb)
 
     def dump_config(self):
         save_config()
@@ -139,12 +158,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.hand_plot_manager.clear()
 
     def pre_initialize(self):
-        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
-                                                              "E-skin Display" if LAN == 'en' else "电子皮肤采集程序"))
-        self.setWindowIcon(QtGui.QIcon(os.path.join(RESOURCE_FOLDER, "tujian.ico")))
-        logo_path = os.path.join(RESOURCE_FOLDER, "logo.png")
-        self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
-        self.label_logo.setScaledContents(True)
+        set_logo(self)
         self.initialize_buttons()
         self.set_enable_state()
 
@@ -167,6 +181,22 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_abandon_zero.clicked.connect(self.clear)
         self.set_enable_state()
         self.com_port.setText(config['port'])
+        self.button_load_calibration.clicked.connect(lambda: self.__set_calibrator(None))
+        # self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
+
+    def __set_calibrator(self, path=None):
+        if path is None:
+            path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.clb)")[0]
+        if path:
+            flag = self.data_handler.set_calibrator(path, forced_to_use_clb=True)
+            if flag:
+                self.hand_plot_manager.set_axes_using_calibration(True)
+                self.scheduled_set_zero = True
+
+    def __abandon_calibrator(self):
+        self.data_handler.abandon_calibrator()
+        self.hand_plot_manager.set_axes_using_calibration(False)
+        self.scheduled_set_zero = True
 
     def trigger(self):
         try:
