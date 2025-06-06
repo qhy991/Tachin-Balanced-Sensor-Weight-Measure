@@ -17,10 +17,11 @@ from interfaces.public.utils import (set_logo,
                                      create_a_line, create_an_image,
                                      config, save_config, catch_exceptions,
                                      apply_swap)
-
+import pyqtgraph as pg
 #
 LABEL_TIME = '时间/s'
 LABEL_PRESSURE = '单点力/N'
+LABEL_FORCE = '总力/N'
 LABEL_VALUE = '值'
 LABEL_RESISTANCE = '电阻/(kΩ)'
 Y_LIM_INITIAL = config['y_lim']
@@ -65,7 +66,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 根据不同mode构造数据接口
         if mode == 'standard':
             from backends.usb_driver import LargeUsbSensorDriver
-            self.data_handler = DataHandler(LargeUsbSensorDriver)
+            self.data_handler = DataHandler(LargeUsbSensorDriver, max_len=256)
         elif mode == 'zw':
             from backends.usb_driver import ZWUsbSensorDriver
             self.data_handler = DataHandler(ZWUsbSensorDriver)
@@ -166,7 +167,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def __apply_y_lim(self):
         for line in [self.line_maximum, self.line_tracing]:
-            line.getViewBox().setYRange(*self.y_lim)
+            if not (line is self.line_maximum and self.data_handler.using_calibration):
+                line.getViewBox().setYRange(*self.y_lim)
             pass
 
     def __set_using_calibration(self, b):
@@ -174,8 +176,14 @@ class Window(QtWidgets.QWidget, Ui_Form):
             for line in [self.line_maximum, self.line_tracing]:
                 ax = line.get_axis()
                 ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
-                    [f'{_: .1f}' for _ in values]
+                    [f'{_: .2f}' for _ in values]
                 ax.getAxis('left').label.setPlainText(LABEL_PRESSURE)
+                # 特殊处理：改为总力
+                if line is self.line_maximum:
+                    ax.getAxis('left').label.setPlainText(LABEL_FORCE)
+                    self.label_3.setText("总值")
+                    ax.getViewBox().setYRange(0, 0.1)
+                    ax.enableAutoRange(axis=pg.ViewBox.YAxis)
             self.scaling = lambda x: x
             self.__apply_y_lim()
         else:
@@ -184,6 +192,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
                 ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
                     [f'{10 ** (-_): .1f}' for _ in values]
                 ax.getAxis('left').label.setPlainText(LABEL_RESISTANCE)
+                if ax is self.line_maximum:
+                    self.label_3.setText("峰值")
+                    ax.getViewBox().setYRange(-MAXIMUM_Y_LIM, -MINIMUM_Y_LIM)
             self.scaling = log
             self.__apply_y_lim()
 
@@ -214,7 +225,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         save_config()
 
     def __set_calibrator(self):
-        path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.csv;*.clb)")[0]
+        path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.clb)")[0]
         if path:
             flag = self.data_handler.set_calibrator(path)
             if flag:
@@ -272,7 +283,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
                 if self.data_handler.value:
                     self.plot.setImage(apply_swap(self.scaling(np.array(self.data_handler.value[-1].T))),
                                        levels=self.y_lim)
-                    self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.maximum))
+                    if self.data_handler.using_calibration:
+                        self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.summed))
+                    else:
+                        self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.maximum))
                     self.line_tracing.setData(self.data_handler.t_tracing, self.scaling(self.data_handler.tracing))
         except USBError:
             self.stop()

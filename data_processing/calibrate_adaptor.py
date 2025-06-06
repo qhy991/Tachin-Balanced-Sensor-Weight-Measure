@@ -88,13 +88,16 @@ class CalibrateAdaptor:
 if __name__ == '__main__':
 
     # transform '.csv' to '.clb'
-    path = os.path.join(os.path.dirname(__file__), '../calibrate_files/default_calibration_file.csv')
-    se = SecureEncryption()
-    with open(path, 'rt') as f:
-        content = ''.join(f.readlines())
-    encrypted_content = se.encrypt(content, '-')
-    with open(path.replace('.csv', '.clb'), 'wb') as f:
-        f.write(encrypted_content.encode())
-    print(encrypted_content)
+    folder = os.path.join(os.path.dirname(__file__), '../calibrate_files')
+    for file in os.listdir(folder):
+        if file.endswith('.csv'):
+            path = os.path.join(folder, file)
+            se = SecureEncryption()
+            with open(path, 'rt') as f:
+                content = ''.join(f.readlines())
+            encrypted_content = se.encrypt(content, '-')
+            with open(path.replace('.csv', '.clb'), 'wb') as f:
+                f.write(encrypted_content.encode())
+            print(f"Encrypted {file} to {file.replace('.csv', '.clb')}")
 
 

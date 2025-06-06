@@ -2,7 +2,7 @@ import numpy as np
 import os
 from scipy.interpolate import interp1d
 from scipy.optimize import minimize
-
+from data_processing.interpolation import Interpolation
 
 abs_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -149,6 +149,7 @@ class ManualDirectionLinearAlgorithm(Algorithm):
         self.segments = np.ndarray((0, ))
         self.nodes_center = np.ndarray((0, ))
         self.nodes_hysteresis = np.ndarray((0, ))
+        self.median = Interpolation(interp=1, blur=0.5, sensor_shape=sensor_class.SENSOR_SHAPE, use_median=False)
         #
         self.streaming_voltage = None
         self.streaming_trend = np.zeros(shape=sensor_class.SENSOR_SHAPE, dtype=float)
@@ -274,7 +275,7 @@ class ManualDirectionLinearAlgorithm(Algorithm):
         return force_est
 
     def transform_streaming(self, sensor_reading):
-        force_est = self.calculate_estimated_force_streaming(sensor_reading)
+        force_est = self.calculate_estimated_force_streaming(self.median.smooth(sensor_reading))
         return force_est
 
     def save(self):
@@ -299,8 +300,8 @@ class ManualDirectionLinearAlgorithm(Algorithm):
                 continue
             voltage, pressure_center, pressure_hysteresis = line.split(',')
             segments.append(int(voltage) * self.sensor_class.SCALE)
-            nodes_center.append(int(pressure_center) / FORCE_SCALING)
-            nodes_hysteresis.append(int(pressure_hysteresis) / FORCE_SCALING)
+            nodes_center.append(float(pressure_center) / FORCE_SCALING)
+            nodes_hysteresis.append(float(pressure_hysteresis) / FORCE_SCALING)
         self.segments = np.array(segments)
         self.nodes_center = np.array(nodes_center)
         self.nodes_hysteresis = np.array(nodes_hysteresis)

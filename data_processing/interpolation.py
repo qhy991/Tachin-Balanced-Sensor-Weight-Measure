@@ -5,9 +5,10 @@ import numpy as np
 
 class Interpolation:
 
-    def __init__(self, interp, blur, sensor_shape):
+    def __init__(self, interp, blur, sensor_shape, use_median=False):
         self.interp = interp
         self.blur = blur
+        self.use_median = use_median
         if blur > 16:
             raise Exception("过大的模糊参数")
         self.sensor_shape = sensor_shape
@@ -15,8 +16,9 @@ class Interpolation:
     def smooth(self, data):
         if isinstance(data, np.ndarray):
             data = data.astype(float)
+            if self.use_median:
+                data = median_filter(data, size=3, mode='constant', cval=0)
             if self.blur > 0:
-                # data = median_filter(data, size=3, mode='constant', cval=0)
                 data = gaussian_filter(data, sigma=self.blur, mode='constant', cval=0)
             data = self.zoom(data)
             return data

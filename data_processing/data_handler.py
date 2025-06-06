@@ -58,6 +58,7 @@ class DataHandler:
         self.value_zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)
         self.value_mid = deque(maxlen=self.max_len)  # 中值
         self.maximum = deque(maxlen=self.max_len)  # 峰值
+        self.summed = deque(maxlen=self.max_len)  # 总值
         self.tracing = deque(maxlen=self.max_len)  # 追踪点
         self.t_tracing = deque(maxlen=self.max_len)  # 追踪点的时间。由于更新追踪点时会清空，故单独记录
         self.tracing_point = (0, 0)  # 当前的追踪点
@@ -150,6 +151,7 @@ class DataHandler:
         self.time_ms.clear()
         self.value_mid.clear()
         self.maximum.clear()
+        self.summed.clear()
         self.tracing.clear()
         self.t_tracing.clear()
         self.lock.release()
@@ -183,9 +185,10 @@ class DataHandler:
                 if self.filters_for_each is not None:
                     for k in self.filters_for_each:
                         _[k] = self.filters_for_each[k].filter(_[k])
-                data_f = self.interpolation.smooth(_)
+
+                value = self.calibration_adaptor.transform_frame(_.astype(float) * self.driver.SCALE)
+                value = self.interpolation.smooth(value)
                 # 换算值
-                value = self.calibration_adaptor.transform_frame(data_f.astype(float) * self.driver.SCALE)
                 value_before_zero = value
                 value = self.filter_after_zero.filter(value - self.zero)
                 # 时间
@@ -194,7 +197,7 @@ class DataHandler:
                 time_after_begin = time_now - self.begin_time
                 self.lock.acquire()
                 self.data.append(data)
-                self.filtered_data.append(data_f)
+                # self.filtered_data.append(data_f)
                 self.value_before_zero.append(value_before_zero)
                 self.value.append(value)
                 self.time.append(time_after_begin)
@@ -203,6 +206,7 @@ class DataHandler:
                     self.time_ms.append(np.array([(time_after_begin * 1e3) % 10000], dtype='>i2'))  # ms
                     self.value_mid.append(np.median(value))
                     self.maximum.append(np.max(value))
+                    self.summed.append(np.sum(value))
                     self.tracing.append(np.mean(np.asarray(value)[
                                                    self.tracing_point[0] * self.interpolation.interp
                                                    : (self.tracing_point[0] + 1) * self.interpolation.interp,
