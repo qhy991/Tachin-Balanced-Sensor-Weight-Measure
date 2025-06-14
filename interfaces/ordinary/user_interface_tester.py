@@ -6,7 +6,7 @@
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
-from interfaces.ordinary.layout.layout import Ui_Form
+from interfaces.ordinary.layout.layout_tester import Ui_Form
 #
 from usb.core import USBError
 import sys

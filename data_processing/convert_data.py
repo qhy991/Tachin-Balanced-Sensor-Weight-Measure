@@ -10,7 +10,7 @@ import json
 import time
 
 
-def convert_db_to_csv(path):
+def extract_data(path):
     if os.path.exists(path):
         assert path.endswith('.db')
         connection = sqlite3.connect(path)
@@ -33,10 +33,21 @@ def convert_db_to_csv(path):
                 to_be_concatenated.append(pd.DataFrame(data_row,
                                                          columns=[f'data_region_{j}_row_{i}_col_{k}'
                                                                   for k in range(data_row.shape[1])]))
+            elif c.startswith('config_') or c.startswith('feature_'):
+                to_be_concatenated.append(pd.DataFrame(data[c].values.reshape((-1, 1)), columns=[c]))
+                pass
         data_by_col = pd.concat(to_be_concatenated, axis=1)
+        connection.close()
+        return data_by_col
+    else:
+        print('文件不存在')
+        return None
+
+def convert_db_to_csv(path):
+    data_by_col = extract_data(path)
+    if data_by_col is not None:
         save_path = path[:-3] + '.csv'
         data_by_col.to_csv(save_path, index=False)
-        connection.close()
         print('导出完成')
         try:
             os.startfile(save_path)

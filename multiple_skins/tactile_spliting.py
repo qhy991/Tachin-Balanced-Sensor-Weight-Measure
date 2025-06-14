@@ -54,6 +54,16 @@ class SplitDataDict:
         else:
             return array
 
+    # def __array_function__(self, func, types, args, kwargs):
+    #     warnings.warn("NOT FINISHED")
+    #     if func in [np.max, np.sum, np.mean]:
+    #         result = {}
+    #         for key, value in self.items():
+    #             result[key] = func(value, **kwargs)
+    #         return SplitDataDict(np.array(list(result.values())), self.range_mapping)
+    #     else:
+    #         return NotImplemented
+    #
     def __abs__(self):
         return self.__array_wrap__(np.abs(self.full_data))
 
@@ -200,3 +210,26 @@ def get_split_driver_class(base_driver_class, config_mapping):
             return data_fingers, t_last
 
     return TactileDriverWithPreprocessing
+
+if __name__ == '__main__':
+    # test SplitDataDict
+    full_data = np.random.rand(64, 64)
+    range_mapping = {
+        0: (slice(0, 32), slice(0, 32), False, False, False, 1.0, 1.0),
+        1: (slice(0, 32), slice(32, 64), False, False, False, 1.0, 1.0),
+        2: (slice(32, 64), slice(0, 32), False, False, False, 1.0, 1.0),
+        3: (slice(32, 64), slice(32, 64), False, False, False, 1.0, 1.0)
+    }
+    split_data_dict = SplitDataDict(full_data, range_mapping)
+    print("Full Data Shape:", split_data_dict.shape)
+    print("Keys:", list(split_data_dict.keys()))
+    for key in split_data_dict.keys():
+        print(f"Data for key {key}:\n", split_data_dict[key])
+    summed = np.sum(split_data_dict)
+    mean = np.mean(split_data_dict)
+    max = np.max(split_data_dict)
+    print("Sum of all data:", summed)
+    print("Mean of all data:", mean)
+    print("Max of all data:", max)
+    pass
+

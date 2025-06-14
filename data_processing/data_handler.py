@@ -56,7 +56,6 @@ class DataHandler:
         self.time_ms = deque(maxlen=self.max_len)  # ms上的整型。通讯专用
         self.zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)  # 零点
         self.value_zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)
-        self.value_mid = deque(maxlen=self.max_len)  # 中值
         self.maximum = deque(maxlen=self.max_len)  # 峰值
         self.summed = deque(maxlen=self.max_len)  # 总值
         self.tracing = deque(maxlen=self.max_len)  # 追踪点
@@ -71,7 +70,7 @@ class DataHandler:
         # 退出时断开
         atexit.register(self.disconnect)
         #
-        self.dump_interval = config.get("dump_interval", 5.) * 0.001
+        self.dump_interval = config.get("dump_interval", 10.) * 0.001
         self.next_dump = 0.
 
     # 保存功能
@@ -86,19 +85,23 @@ class DataHandler:
             self.path_db = path
             self.cursor = self.output_file.cursor()
             if self.region_count == 0:  # 无分区
-                command = 'create table data (time float, time_after_begin float, '\
+                command = ('create table data (time float, time_after_begin float, '
                           + ', '.join([f'data_row_{i} text'
                                       for i in range(self.driver.SENSOR_SHAPE[0])
-                                      ])\
-                          + ')'
+                                      ]) + ','
+                          + ', '.join(['config_zero_set int', 'config_using_calibration int',
+                                       'feature_summed int', 'feature_maximum int', 'feature_tracing int'])
+                           + ')')
             else:
                 # SplitDataDict 模式
-                command = 'create table data (time float, time_after_begin float, ' \
+                command = ('create table data (time float, time_after_begin float, '
                           + ', '.join([f'data_region_{i}_row_{j} text'
                                        for i in range(self.region_count)
                                        for j in range(self.driver.SENSOR_SHAPE[0])
-                                       ]) \
-                          + ')'
+                                       ]) + ','
+                            + ', '.join(['zero_set int', 'using_calibration int',
+                                         'summed int', 'maximum int', 'tracing int'])
+                           + ')')
             self.cursor.execute(command)
 
         except PermissionError as e:
@@ -106,7 +109,8 @@ class DataHandler:
         except Exception as e:
             raise Exception('文件无法写入')
 
-    def write_to_file(self, time_now, time_after_begin, data):
+    def write_to_file(self, time_now, time_after_begin, data, summed, maximum, tracing):
+        #
         if self.output_file is not None:
             if time_after_begin - self.next_dump > 2 * self.dump_interval:
                 self.next_dump = 0.
@@ -114,13 +118,18 @@ class DataHandler:
                 self.next_dump = time_after_begin
             if time_after_begin >= self.next_dump:
                 if self.region_count == 0:
-                    command = f'insert into data values ({time_now}, {time_after_begin}, ' \
-                              + ', '.join(['\"' + json.dumps(_.tolist()) + '\"' for _ in data]) + ')'
+                    command = (f'insert into data values ({time_now}, {time_after_begin}, '
+                               + ', '.join(['\"' + json.dumps(_.tolist()) + '\"' for _ in data]) + ','
+                               + ', '.join([str(_) for _ in [int(self.zero_set), int(self.using_calibration),
+                                                             summed, maximum, tracing]]) +
+                               ')')
                 else:
                     # SplitDataDict 模式
                     data_list = sum([['\"' + json.dumps(_.tolist()) + '\"' for _ in data[k]] for k in data.keys()], [])
-                    command = f'insert into data values ({time_now}, {time_after_begin}, ' \
-                              + ', '.join(data_list) + ')'
+                    command = (f'insert into data values ({time_now}, {time_after_begin}, '
+                               + ', '.join(data_list) + ','
+                               + ', '.join([str(_) for _ in [int(self.zero_set), int(self.using_calibration)]]) + ','
+                               + ', '.join([str(_) for _ in [summed, maximum, tracing]]) + ')')
                 self.cursor.execute(command)
                 self.commit_file()
                 self.next_dump = self.next_dump + self.dump_interval
@@ -139,6 +148,10 @@ class DataHandler:
             convert_db_to_csv(self.path_db)
             self.path_db = None
 
+    @property
+    def saving_file(self):
+        return bool(self.output_file)
+
     # 保存功能结束
 
     def clear(self):
@@ -149,7 +162,6 @@ class DataHandler:
         self.value.clear()
         self.time.clear()
         self.time_ms.clear()
-        self.value_mid.clear()
         self.maximum.clear()
         self.summed.clear()
         self.tracing.clear()
@@ -190,11 +202,20 @@ class DataHandler:
                 value = self.interpolation.smooth(value)
                 # 换算值
                 value_before_zero = value
-                value = self.filter_after_zero.filter(value - self.zero)
+                value = self.filter_after_zero.filter(np.maximum(value - self.zero, 0.))
                 # 时间
                 if self.begin_time is None:
                     self.begin_time = time_now
                 time_after_begin = time_now - self.begin_time
+                # 导出
+                summed = np.sum(value)
+                maximum = np.max(value)
+                tracing = np.mean(np.asarray(value)[
+                                                   self.tracing_point[0] * self.interpolation.interp
+                                                   : (self.tracing_point[0] + 1) * self.interpolation.interp,
+                                                   self.tracing_point[1] * self.interpolation.interp
+                                                   : (self.tracing_point[1] + 1) * self.interpolation.interp])
+
                 self.lock.acquire()
                 self.data.append(data)
                 # self.filtered_data.append(data_f)
@@ -204,18 +225,15 @@ class DataHandler:
                 if self.curve_on:
                     self.t_tracing.append(time_after_begin)
                     self.time_ms.append(np.array([(time_after_begin * 1e3) % 10000], dtype='>i2'))  # ms
-                    self.value_mid.append(np.median(value))
-                    self.maximum.append(np.max(value))
-                    self.summed.append(np.sum(value))
-                    self.tracing.append(np.mean(np.asarray(value)[
-                                                   self.tracing_point[0] * self.interpolation.interp
-                                                   : (self.tracing_point[0] + 1) * self.interpolation.interp,
-                                                   self.tracing_point[1] * self.interpolation.interp
-                                                   : (self.tracing_point[1] + 1) * self.interpolation.interp]))
+                    self.maximum.append(maximum)
+                    self.summed.append(summed)
+                    self.tracing.append(tracing)
                 self.lock.release()
                 #
-
-                self.write_to_file(time_now, time_after_begin, data)
+                try:
+                    self.write_to_file(time_now, time_after_begin, data, int(summed), int(maximum), int(tracing))
+                except TypeError:
+                    warnings.warn('未完成保存模块')
             else:
                 break
         # print(f"取得数据{self.MAX_IN - count_in}条")

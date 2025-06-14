@@ -17,6 +17,7 @@
       <excludeFolder url="file://$MODULE_DIR$/calibrate_files" />
       <excludeFolder url="file://$MODULE_DIR$/data_processing/OLD" />
       <excludeFolder url="file://$MODULE_DIR$/data_processing/data_viewer_OBSOLETE" />
+      <excludeFolder url="file://$MODULE_DIR$/interfaces/multiple_zones/dumping" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.10 (2)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

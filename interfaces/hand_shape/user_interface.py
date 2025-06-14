@@ -25,7 +25,6 @@ from data_processing.preprocessing import Filter, MedianFilter, RCFilterHP, Side
 from interfaces.hand_shape.hand_plot_manager import HandPlotManager
 
 from data_processing.preprocessing import Filter, ExtensionFilter, MeanFilter
-from data_processing.experimental_preprocessing import WeightRevisionForEach as StatisticalFilter
 
 
 from interfaces.public.utils import (set_logo,

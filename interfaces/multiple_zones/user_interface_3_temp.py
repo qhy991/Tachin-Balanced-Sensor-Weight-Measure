@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
 from multiple_skins.tactile_spliting import get_split_driver_class
 import time
-from interfaces.multiple_zones.layout.layout import Ui_Form
+from interfaces.multiple_zones.layout.layout_3_temp import Ui_Form
 import pyqtgraph
 import os
 #
@@ -76,27 +76,42 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self._using_calibration = False
         #
         self.log_y_lim = Y_LIM_INITIAL
-        self.line_maximum = self.create_a_line(self.fig_1)
-        self.line_tracing = self.create_a_line(self.fig_2)
+        self.dict_lines = {
+            0: {
+                # 'press': self.create_a_line(self.fig_0_press),
+                # 'slide': self.create_a_line(self.fig_0_slide),
+                # 'pat': self.create_a_line(self.fig_0_pat)
+            },
+            1: {
+                # 'press': self.create_a_line(self.fig_1_press),
+                # 'slide': self.create_a_line(self.fig_1_slide),
+                # 'pat': self.create_a_line(self.fig_1_pat)
+            },
+            2: {
+                # 'press': self.create_a_line(self.fig_2_press),
+                # 'slide': self.create_a_line(self.fig_2_slide),
+                # 'pat': self.create_a_line(self.fig_2_pat)
+            }
+        }
+        # 完全展平
+        # self.list_lines = [self.dict_lines[i][key] for i in range(3) for key in ['press', 'slide', 'pat']]
+        self.list_lines = [self.dict_lines[i][key] for i in range(3) for key in []]
         self.plots = {
             0: self.create_an_image(self.fig_image_0),
-            1: self.create_an_image(self.fig_image_1)
+            1: self.create_an_image(self.fig_image_1),
+            2: self.create_an_image(self.fig_image_2),
         }
         self.mode = mode
-        if mode == 'usb':
+        if mode.startswith('usb'):
             from backends.usb_driver import LargeUsbSensorDriver as SensorDriver
-        elif mode == 'can':
+        elif mode.startswith('can'):
             from backends.can_driver import Can16SensorDriver as SensorDriver
         else:
             raise NotImplementedError()
         # 标定状态
         self.scaling = log
         self.__set_using_calibration(False)
-        # 布局修正
-        self.horizontalLayout_2.setStretch(0, 1)
-        self.horizontalLayout_2.setStretch(1, 1)
-        self.horizontalLayout_2.setStretch(2, 2)
-        config_mapping = get_config_mapping('jk')
+        config_mapping = get_config_mapping('id')
         self.data_handler = DataHandler(get_split_driver_class(SensorDriver, config_mapping), max_len=64)
         self.pre_initialize()
         self.timer = QtCore.QTimer()
@@ -105,7 +120,13 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.time_last_image_update = np.uint32(0)
         # 是否处于使用标定状态
         self.__set_calibrator(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           '../../calibrate_files/default_calibration_file.clb'))
+                                           '../../calibrate_files/calibration_log.clb'))
+        # INDEMIND
+        if 'indemind' in self.mode:
+            from interfaces.multiple_zones.feature_extractor import FeatureExtractor
+            self.extractors = [FeatureExtractor({'name': str(_)}) for _ in range(3)]
+        else:
+            self.extractors = None
 
     def catch_exceptions(self, ty, value, tb):
         # 错误重定向为弹出对话框
@@ -119,7 +140,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def y_lim(self):
         # 这里经常改
         if self._using_calibration:
-            return self.data_handler.calibration_adaptor.range()
+            calibrated_range = self.data_handler.calibration_adaptor.range()
+            return [calibrated_range[0] * 0.1, calibrated_range[1] * 0.35]
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
@@ -156,7 +178,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.set_enable_state()
         self.__apply_y_lim()
         #
-        self.com_port.setEnabled(False)  # 一旦成功开始，就再也不能修改
+        self.com_port.setEnabled(True)  # 一旦成功开始，就再也不能修改
 
     def __make_cb_clicked_on_image(self, image_idx):
         def __clicked_on_image(event: MouseClickEvent):
@@ -234,13 +256,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def create_a_line(self, fig_widget: pyqtgraph.GraphicsLayoutWidget):
         ax: pyqtgraph.PlotItem = fig_widget.addPlot()
-        ax.setLabel(axis='left', text=LABEL_RESISTANCE)
+        ax.setLabel(axis='left', text='指标')
         ax.getAxis('left').enableAutoSIPrefix(False)
-        ax.setLabel(axis='bottom', text=LABEL_TIME)
-        # ax.getAxis('left').tickStrings = lambda values, scale, spacing:\
-        #     [(f'{_ ** -1: .1f}' if _ > 0. else 'INF') for _ in values]
-        ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
-                [f'{10 ** (-_): .1f}' for _ in values]
+        ax.setLabel(axis='bottom', text='')
         line: pyqtgraph.PlotDataItem = ax.plot([], [], **LINE_STYLE)
         fig_widget.setBackground('w')
         ax.getViewBox().setBackgroundColor([255, 255, 255])
@@ -254,31 +272,12 @@ class Window(QtWidgets.QWidget, Ui_Form):
         return line
 
     def __apply_y_lim(self):
-        for line in [self.line_maximum, self.line_tracing]:
-            line.getViewBox().setYRange(*self.y_lim)
+        for line in self.list_lines:
+            line.getViewBox().setYRange(0., 1.)
             pass
 
     def __set_using_calibration(self, b):
-        if b:
-            self._using_calibration = True
-            for line in [self.line_maximum, self.line_tracing]:
-                ax = line.get_axis()
-                ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
-                    [f'{_: .1f}' for _ in values]
-                ax.getAxis('left').label.setPlainText(LABEL_PRESSURE)
-
-            self.scaling = lambda x: x
-            self.__apply_y_lim()
-        else:
-            self._using_calibration = False
-            for line in [self.line_maximum, self.line_tracing]:
-                ax = line.get_axis()
-                ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
-                    [f'{10 ** (-_): .1f}' for _ in values]
-                ax.getAxis('left').label.setPlainText(LABEL_RESISTANCE)
-
-            self.scaling = log
-            self.__apply_y_lim()
+        self._using_calibration = b
 
     def create_an_image(self, fig_widget: pyqtgraph.GraphicsLayoutWidget):
         fig_widget.setBackground(0.95)
@@ -298,10 +297,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.button_save_to.setText("End acquisition" if LAN == "en" else "结束采集")
         else:
             self.button_save_to.setText("Acquire to file..." if LAN == "en" else "采集到...")
-        if self.mode == 'usb':
+        if self.mode.startswith('usb'):
             if self.is_running:
                 self.com_port.setEnabled(False)
-        elif self.mode == 'can':
+        elif self.mode.startswith('can'):
             pass
         else:
             raise NotImplementedError()
@@ -378,10 +377,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
         if not isinstance(str_port, str):
             raise Exception('Config file error' if LAN == "en" else '配置文件出错')
 
-        if self.mode == 'usb':
+        if self.mode.startswith('usb'):
             self.com_port.setEnabled(True)
             self.com_port.setText(config['port'])
-        elif self.mode == 'can':
+        elif self.mode.startswith('can'):
             self.com_port.setEnabled(False)
             self.com_port.setText('-')
         else:
@@ -392,10 +391,16 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.data_handler.trigger()
             if self.data_handler.value:
                 for idx_plot, plot in self.plots.items():
-                    plot.setImage(self.__apply_swap(self.scaling(np.array(self.data_handler.value[-1][idx_plot].T))),
+                    data_filtered = self.extractors[idx_plot].stream_in(self.__apply_swap(self.data_handler.value[-1][idx_plot]))
+                    plot.setImage(data_filtered.T,
                                   levels=self.y_lim)
-                self.line_maximum.setData(self.data_handler.time, self.scaling(self.data_handler.maximum))
-                self.line_tracing.setData(self.data_handler.t_tracing, self.scaling(self.data_handler.tracing))
+                    res = self.extractors[idx_plot].get_result_storage()
+                    if res:
+                        for key in []:
+                            valid_data = [r[key] for r in res if r[key] is not None]
+                            self.dict_lines[idx_plot][key].setData(
+                                np.arange(len(valid_data)), valid_data,
+                                **LINE_STYLE)
         except USBError:
             self.stop()
             QtWidgets.qApp.quit()

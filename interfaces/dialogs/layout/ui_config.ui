@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Dialog</class>
+ <widget class="QDialog" name="Dialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>300</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Dialog</string>
+  </property>
+  <layout class="QGridLayout" name="gridLayout_2">
+   <item row="0" column="0">
+    <layout class="QHBoxLayout" name="horizontalLayout_3">
+     <item>
+      <spacer name="horizontalSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="verticalLayout" stretch="1,0">
+       <item>
+        <layout class="QGridLayout" name="gridLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="label">
+           <property name="text">
+            <string>电阻模式范围</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QComboBox" name="combo_box_y_range">
+           <item>
+            <property name="text">
+             <string>3倍</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>10倍</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>30倍</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>100倍</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>300倍</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>1000倍</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="label_2">
+           <property name="text">
+            <string>标定模式基线比例</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QComboBox" name="combo_box_baseline_calibrated">
+           <item>
+            <property name="text">
+             <string>0</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>0.01</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>0.02</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>0.03</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>0.04</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>0.05</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="label_8">
+           <property name="text">
+            <string>允许鼠标调节</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QCheckBox" name="check_box_allow_mouse">
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="label_3">
+           <property name="text">
+            <string>刷新间隔</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QComboBox" name="combo_box_trigger_time">
+           <item>
+            <property name="text">
+             <string>15ms</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>30ms</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>60ms</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>100ms</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="label_4">
+           <property name="text">
+            <string>采集间隔</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QComboBox" name="combo_box_dump_interval">
+           <item>
+            <property name="text">
+             <string>完全采样</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>0.1s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>1s</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>1min</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QLabel" name="label_5">
+           <property name="text">
+            <string>X轴翻转</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QCheckBox" name="check_box_x_invert">
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0">
+          <widget class="QLabel" name="label_6">
+           <property name="text">
+            <string>Y轴翻转</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="1">
+          <widget class="QCheckBox" name="check_box_y_invert">
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="0">
+          <widget class="QLabel" name="label_7">
+           <property name="text">
+            <string>XY交换</string>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="1">
+          <widget class="QCheckBox" name="check_box_x_y_swap">
+           <property name="text">
+            <string/>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout">
+         <property name="sizeConstraint">
+          <enum>QLayout::SetMaximumSize</enum>
+         </property>
+         <item>
+          <widget class="QPushButton" name="button_cancel">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>取消</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="button_ensure">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="text">
+            <string>确定</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_2">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
