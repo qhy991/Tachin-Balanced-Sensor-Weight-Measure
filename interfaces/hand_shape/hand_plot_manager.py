@@ -204,7 +204,6 @@ class HandPlotManager:
         angle = -np.arctan2(rect[1][1] - rect[0][1], rect[1][0] - rect[0][0])
         x_length = np.sqrt((rect[1][0] - rect[0][0]) ** 2 + (rect[1][1] - rect[0][1]) ** 2)
         new_shape = (int(x_length), int(x_length * y_rate))
-        pass
 
         def projection_function(data: np.ndarray):
             # data = np.log(np.maximum(data, 1e-6)) / np.log(10)
@@ -212,8 +211,8 @@ class HandPlotManager:
             if filter is not None:
                 data = filter.filter(data)
             data = (data - y_lim[0]) / (y_lim[1] - y_lim[0])
-            data = Interpolation(2, 0.5, data.shape).smooth(data * rect[3])
-            data = np.clip((data - DISP_THRE) * 1.5, 0., 1.)
+            data = Interpolation(2, 1.0, data.shape).smooth(data * rect[3])
+            data = np.clip((data - DISP_THRE) * 5.0, 0., 1.)
             img_original = Image.fromarray((self.cmap.map(data.T, mode=float) * 255.).astype(np.uint8),
                                            mode='RGBA')
             img_scaled = img_original.resize((int(new_shape[0] * self.resize_transform[0]),
@@ -293,6 +292,12 @@ class HandPlotManager:
             self.lock.acquire()
             self.reset_image()
             for idx, data in data_fingers.items():
+
+                # data[2, 2] = 0
+                # data[4, :] = 0
+                # data[3, 2] = np.mean(data[2:4, 1:4] * 6 / 5)
+                # data[4, 2] = np.mean(data[4:6, 1:4] * 6 / 5)
+
                 self.proj_funcs[idx](data)
                 # 0304前旧版本
                 # max_value = np.max(data)
@@ -303,7 +308,7 @@ class HandPlotManager:
                 x_diff = self.finger_feature_extractors[idx](data)['center_x_diff']
                 y_diff = self.finger_feature_extractors[idx](data)['center_y_diff']
                 self.summed_value[idx].append(summed_value)
-                self.region_max[idx].append(max([max_value, 20]) - 20)
+                self.region_max[idx].append(max_value)
                 self.region_x_diff[idx].append(x_diff)
                 self.region_y_diff[idx].append(y_diff)
             self.lock.release()
@@ -331,13 +336,13 @@ class HandPlotManager:
             self.clear()
             self.ax.setLabel(axis='left', text='总力(N)')
             # 设置Y轴自由
-            self.ax.getViewBox().setYRange(0, 0.1)
+            self.ax.getViewBox().setYRange(0, 1.0)
             self.ax.enableAutoRange(axis=pyqtgraph.ViewBox.YAxis)
 
             def update_y_range():
                 current_range = self.ax.viewRange()[1]  # 获取当前Y轴范围
-                if current_range[1]  < 0.1:  # 如果范围不足1
-                    new_range = (0., 0.1)
+                if current_range[1]  < 1.0:  # 如果范围不足1
+                    new_range = (0., 1.0)
                     self.ax.sigRangeChanged.disconnect(update_y_range)
                     self.ax.getViewBox().setYRange(new_range[0], new_range[1])
                     self.ax.sigRangeChanged.connect(update_y_range)

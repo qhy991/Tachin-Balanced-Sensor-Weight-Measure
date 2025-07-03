@@ -82,9 +82,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
                 for idx in self.data_handler.driver.range_mapping.keys()
             }
             for idx, filter in filters.items():
-                filters[idx] = filter * ExtensionFilter(
-                {'SENSOR_SHAPE': self.data_handler.driver.get_zeros(int(idx)).shape, 'DATA_TYPE': float},
-                weight_row=0.0, weight_col=0.2, iteration_count=10)
+                # filters[idx] = filter * ExtensionFilter(
+                # {'SENSOR_SHAPE': self.data_handler.driver.get_zeros(int(idx)).shape, 'DATA_TYPE': float},
+                # weight_row=0.0, weight_col=0.2, iteration_count=10)
+                pass
             # filters[11] = (StatisticalFilter(filters[11].sensor_class, '0517')) * filters[11]
             self.data_handler.filters_for_each = filters
 
@@ -111,7 +112,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         #
         self.scheduled_set_zero = False
         self.__set_calibrator(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           '../../calibrate_files/default_calibration_file.clb'))
+                                           '../../calibrate_files/z_calibration_file.clb'))
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_F11:
@@ -177,6 +178,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_start.clicked.connect(self.start)
         self.button_stop.clicked.connect(self.stop)
         self.button_set_zero.clicked.connect(self.data_handler.set_zero)
+
         self.button_abandon_zero.clicked.connect(self.clear)
         self.set_enable_state()
         self.com_port.setText(config['port'])

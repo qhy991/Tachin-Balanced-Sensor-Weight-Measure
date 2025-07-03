@@ -149,7 +149,7 @@ class ManualDirectionLinearAlgorithm(Algorithm):
         self.segments = np.ndarray((0, ))
         self.nodes_center = np.ndarray((0, ))
         self.nodes_hysteresis = np.ndarray((0, ))
-        self.median = Interpolation(interp=1, blur=0.5, sensor_shape=sensor_class.SENSOR_SHAPE, use_median=False)
+        self.median = Interpolation(interp=1, blur=0.0, sensor_shape=sensor_class.SENSOR_SHAPE, use_median=False)
         #
         self.streaming_voltage = None
         self.streaming_trend = np.zeros(shape=sensor_class.SENSOR_SHAPE, dtype=float)

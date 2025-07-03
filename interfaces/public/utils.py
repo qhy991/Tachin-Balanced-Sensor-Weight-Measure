@@ -40,26 +40,33 @@ def set_logo(window):
     window.label_logo.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
 
 
-def create_a_line(fig_widget: pyqtgraph.GraphicsLayoutWidget, x_name, y_name):
-    ax: pyqtgraph.PlotItem = fig_widget.addPlot()
-    ax.setLabel(axis='left', text=y_name)
-    ax.getAxis('left').enableAutoSIPrefix(False)
-    ax.setLabel(axis='bottom', text=x_name)
-    # ax.getAxis('left').tickStrings = lambda values, scale, spacing:\
-    #     [(f'{_ ** -1: .1f}' if _ > 0. else 'INF') for _ in values]
-    ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
-            [f'{10 ** (-_): .1f}' for _ in values]
-    line: pyqtgraph.PlotDataItem = ax.plot([], [], **LINE_STYLE)
+def create_lines(fig_widget: pyqtgraph.GraphicsLayoutWidget, x_name, y_name, count=1, ax=None):
+    if ax is None:
+        ax: pyqtgraph.PlotItem = fig_widget.addPlot()
+        ax.setLabel(axis='left', text=y_name)
+        ax.getAxis('left').enableAutoSIPrefix(False)
+        ax.setLabel(axis='bottom', text=x_name)
+        # ax.getAxis('left').tickStrings = lambda values, scale, spacing:\
+        #     [(f'{_ ** -1: .1f}' if _ > 0. else 'INF') for _ in values]
+        ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
+                [f'{10 ** (-_): .1f}' for _ in values]
+        ax.getViewBox().setBackgroundColor([255, 255, 255])
+        ax.getAxis('bottom').setPen(STANDARD_PEN)
+        ax.getAxis('left').setPen(STANDARD_PEN)
+        ax.getAxis('bottom').setTextPen(STANDARD_PEN)
+        ax.getAxis('left').setTextPen(STANDARD_PEN)
+        ax.getViewBox().setMouseEnabled(x=False, y=False)
+        ax.hideButtons()
+    else:
+        # 清除已有的线条
+        ax.clear()
+    lines = []
+    for i in range(count):
+        line: pyqtgraph.PlotDataItem = ax.plot([], [], **LINE_STYLE)
+        line.get_axis = lambda: ax
+        lines.append(line)
     fig_widget.setBackground('w')
-    ax.getViewBox().setBackgroundColor([255, 255, 255])
-    ax.getAxis('bottom').setPen(STANDARD_PEN)
-    ax.getAxis('left').setPen(STANDARD_PEN)
-    ax.getAxis('bottom').setTextPen(STANDARD_PEN)
-    ax.getAxis('left').setTextPen(STANDARD_PEN)
-    ax.getViewBox().setMouseEnabled(x=False, y=False)
-    ax.hideButtons()
-    line.get_axis = lambda: ax
-    return line
+    return ax, lines
 
 
 POS = (0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1)

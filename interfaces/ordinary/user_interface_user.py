@@ -9,12 +9,10 @@ from interfaces.ordinary.layout.layout_user import Ui_MainWindow
 from usb.core import USBError
 import sys
 import numpy as np
-from data_processing.data_handler import DataHandler
+from data_processing.data_handler_experimental import DataHandler
 #
 from interfaces.public.utils import (set_logo,
-                                     create_a_line, create_an_image,
-                                     config, save_config, catch_exceptions,
-                                     apply_swap)
+                                     config, save_config, catch_exceptions)
 from interfaces.ordinary.ordinary_plot import OrdinaryPlot
 import pyqtgraph as pg
 #
@@ -53,21 +51,6 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
         if mode == 'standard':
             from backends.usb_driver import LargeUsbSensorDriver
             data_handler = DataHandler(LargeUsbSensorDriver)
-        elif mode == 'zw':
-            from backends.usb_driver import ZWUsbSensorDriver
-            data_handler = DataHandler(ZWUsbSensorDriver)
-        elif mode == 'socket':
-            from server.socket_client import SocketClient
-            data_handler = DataHandler(SocketClient)
-        elif mode == 'serial':
-            from backends.serial_driver import Serial16SensorDriver
-            data_handler = DataHandler(Serial16SensorDriver)
-        elif mode == 'can':
-            from backends.can_driver import Can16SensorDriver
-            data_handler = DataHandler(Can16SensorDriver)
-        elif mode == 'low_framerate':
-            from backends.special_usb_driver import SimulatedLowFrameUsbSensorDriver
-            data_handler = DataHandler(SimulatedLowFrameUsbSensorDriver)
         else:
             raise NotImplementedError()
         return data_handler
@@ -107,6 +90,8 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
         self.com_port.setEnabled(True)  # 一旦成功开始，就再也不能修改
 
     def __initialize_buttons(self):
+        # 菜单栏全部关闭
+        self.menubar.setEnabled(False)
         # 开始
         self.button_start.clicked.connect(self.start)
         self.action_start.triggered.connect(self.start)
@@ -177,7 +162,8 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
         self.save_config()
 
     def __set_calibrator(self):
-        path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.clb)")[0]
+        path = QtWidgets.QFileDialog.getOpenFileName(
+            self, "选择标定文件", "", "标定文件 (*.clb, *.csv)")[0]
         if path:
             flag = self.data_handler.set_calibrator(path)
             if flag:
@@ -225,6 +211,8 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
                 ret = '采集中...'
             else:
                 ret = '已连接'
+                if self.data_handler.tracing_points:
+                    ret += f' 追踪点 {self.data_handler.tracing_points}'
         else:
             ret = '未连接'
         return ret

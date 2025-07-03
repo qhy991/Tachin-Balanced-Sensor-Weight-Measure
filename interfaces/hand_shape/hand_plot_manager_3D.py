@@ -171,47 +171,6 @@ class HandPlotManager:
         config['y_lim'] = (self.log_y_lim[0], self.log_y_lim[1])
         save_config()
 
-    # def resize_event(self, event):
-    #     pass
-    #     width_origin = self.original_base_image.width
-    #     height_origin = self.original_base_image.height
-    #     width_border = self.img_view.width()
-    #     height_border = self.img_view.height()
-    #     if width_border == 0 or height_border == 0:
-    #         return
-    #     if width_origin / height_origin > width_border / height_border:
-    #         print("宽度占满")
-    #         self.resize_transform = [width_border / width_origin, width_border / width_origin,
-    #                                  0, 0.5 * (height_border - width_border / width_origin * height_origin)]
-    #     else:
-    #         print("高度占满")
-    #         self.resize_transform = [height_border / height_origin, height_border / height_origin,
-    #                                  0.5 * (width_border - height_border / height_origin * width_origin), 0]
-    #     # 强制1:1
-    #     self.resize_image()
-    #     # super(pyqtgraph.widgets.RawImageWidget.RawImageWidget, self.img_view).resizeEvent(event)
-
-    # def resize_image(self):
-    #     img = self.original_base_image.copy()
-    #     img = img.resize((
-    #         int(img.width * self.resize_transform[0]),
-    #         int(img.height * self.resize_transform[1]),
-    #     ),
-    #         resample=Image.BILINEAR)
-    #     img_empty = Image.new('RGBA',
-    #                           (self.img_view.width(), self.img_view.height()),
-    #                           (0, 0, 0, 0))
-    #     img_empty.paste(img, (int(self.resize_transform[2]), int(self.resize_transform[3])),
-    #                     mask=img.split()[-1])
-    #     img = img_empty
-    #     self.base_image = img.copy()
-    #     self.current_image = np.array(img).swapaxes(0, 1)[::-1, :, :]\
-    #         if self.is_left_hand else np.array(img).swapaxes(0, 1)
-    #     self.plot()
-    #
-    # def reset_image(self):
-    #     self.processing_image = self.base_image.copy()
-
     def make_mesh_function(self, rect):
         base_point = rect[0]
         x_delta = (rect[1][0] - rect[0][0], rect[1][1] - rect[0][1])
@@ -229,14 +188,14 @@ class HandPlotManager:
         new_shape = (int(x_length), int(x_length * y_rate))
 
         def mesh_function(data: np.ndarray):
-            x = center[0] + (np.linspace(0, new_shape[0], data.shape[0] + 2) - 0.5 * new_shape[0]) * x_length / (data.shape[0] + 2) / 20
-            y = center[1] + (np.linspace(0, new_shape[1], data.shape[1] + 2) - 0.5 * new_shape[1]) * x_length * y_rate / (data.shape[1] + 2) / 20
+            x = center[0] + (np.linspace(0, new_shape[0], data.shape[0] + 2) - 0.5 * new_shape[0]) * x_length / (data.shape[0] + 2) / 10
+            y = center[1] + (np.linspace(0, new_shape[1], data.shape[1] + 2) - 0.5 * new_shape[1]) * x_length * y_rate / (data.shape[1] + 2) / 10
 
             data = np.log(np.maximum(data, 1e-6)) / np.log(10)
             data = np.clip((data + self.log_y_lim[1]) / (self.log_y_lim[1] - self.log_y_lim[0]), 0., 1.)
             # 外面加一圈
             data = np.pad(data, ((1, 1), (1, 1)), mode='constant', constant_values=0.)
-            data = Interpolation(1, 1.0, data.shape).smooth(data)
+            data = Interpolation(1, 2.0, data.shape).smooth(data)
             z = data.copy()
 
             return {'x': x - 450, 'y': y - 600, 'z': z}
@@ -293,7 +252,7 @@ class HandPlotManager:
                 surface_plot.setData(
                     x=self.meshes[k]['x'] / 100.,
                     y=self.meshes[k]['y'] / 100.,
-                    z=self.meshes[k]['z'] * 1.,
+                    z=self.meshes[k]['z'] * 0.5,
                     colors=create_color_map(self.meshes[k]['z']),
                 )
 
@@ -308,6 +267,31 @@ class HandPlotManager:
         center = self.gl_widget.opts['center']  # 获取相机的中心位置
         print(f"Camera Parameters - Azimuth: {azimuth}, Elevation: {elevation}, Distance: {distance}, Center: {center}")
         GLViewWidget.mouseReleaseEvent(self.gl_widget, event)
+
+    def set_axes_using_calibration(self, b):
+        if b:
+            self.clear()
+            self.ax.setLabel(axis='left', text='总力(N)')
+            # 设置Y轴自由
+            self.ax.getViewBox().setYRange(0, 0.1)
+            self.ax.enableAutoRange(axis=pyqtgraph.ViewBox.YAxis)
+
+            def update_y_range():
+                current_range = self.ax.viewRange()[1]  # 获取当前Y轴范围
+                if current_range[1]  < 0.1:  # 如果范围不足1
+                    new_range = (0., 0.1)
+                    self.ax.sigRangeChanged.disconnect(update_y_range)
+                    self.ax.getViewBox().setYRange(new_range[0], new_range[1])
+                    self.ax.sigRangeChanged.connect(update_y_range)
+                else:
+                    self.ax.enableAutoRange(axis=pyqtgraph.ViewBox.YAxis)
+
+            self.ax.sigRangeChanged.connect(update_y_range)  # 监听范围变化
+        else:
+            self.clear()
+            self.ax.setLabel(axis='left', text='接触强度')
+            self.ax.getViewBox().setYRange(0, 200)
+
 
 def create_color_map(data):
     # Normalize data to range [0, 1]

@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1734</width>
+    <width>1733</width>
     <height>1010</height>
    </rect>
   </property>
@@ -478,7 +478,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1734</width>
+     <width>1733</width>
      <height>26</height>
     </rect>
    </property>
@@ -502,11 +502,13 @@
     <property name="title">
      <string>预处理</string>
     </property>
+    <addaction name="action_load_calibration"/>
+    <addaction name="action_exit_calibration"/>
+    <addaction name="separator"/>
     <addaction name="action_set_zero"/>
     <addaction name="action_abandon_zero"/>
     <addaction name="separator"/>
-    <addaction name="action_load_calibration"/>
-    <addaction name="action_exit_calibration"/>
+    <addaction name="action_2"/>
    </widget>
    <addaction name="menu"/>
    <addaction name="menu_2"/>
@@ -566,6 +568,11 @@
   <action name="action_exit_calibration">
    <property name="text">
     <string>解除标定</string>
+   </property>
+  </action>
+  <action name="action_2">
+   <property name="text">
+    <string>滤波...</string>
    </property>
   </action>
  </widget>

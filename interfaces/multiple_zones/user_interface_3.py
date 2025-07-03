@@ -19,6 +19,8 @@ import sys
 import traceback
 import numpy as np
 from data_processing.data_handler import DataHandler
+from data_processing.preprocessing import RCFilterHP, RCFilter, ExtensionFilter, MedianFilter, OverallFocusFilter
+from data_processing.experimental_preprocessing import StatisticalRevisionForEach
 #
 from config import config, save_config, get_config_mapping
 from interfaces.public.utils import set_logo
@@ -78,23 +80,24 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.log_y_lim = Y_LIM_INITIAL
         self.dict_lines = {
             0: {
-                'press': self.create_a_line(self.fig_0_press),
-                'slide': self.create_a_line(self.fig_0_slide),
-                'pat': self.create_a_line(self.fig_0_pat)
+                # 'press': self.create_a_line(self.fig_0_press),
+                # 'slide': self.create_a_line(self.fig_0_slide),
+                # 'pat': self.create_a_line(self.fig_0_pat)
             },
             1: {
-                'press': self.create_a_line(self.fig_1_press),
-                'slide': self.create_a_line(self.fig_1_slide),
-                'pat': self.create_a_line(self.fig_1_pat)
+                # 'press': self.create_a_line(self.fig_1_press),
+                # 'slide': self.create_a_line(self.fig_1_slide),
+                # 'pat': self.create_a_line(self.fig_1_pat)
             },
             2: {
-                'press': self.create_a_line(self.fig_2_press),
-                'slide': self.create_a_line(self.fig_2_slide),
-                'pat': self.create_a_line(self.fig_2_pat)
+                # 'press': self.create_a_line(self.fig_2_press),
+                # 'slide': self.create_a_line(self.fig_2_slide),
+                # 'pat': self.create_a_line(self.fig_2_pat)
             }
         }
         # 完全展平
-        self.list_lines = [self.dict_lines[i][key] for i in range(3) for key in ['press', 'slide', 'pat']]
+        # self.list_lines = [self.dict_lines[i][key] for i in range(3) for key in ['press', 'slide', 'pat']]
+        self.list_lines = [self.dict_lines[i][key] for i in range(3) for key in []]
         self.plots = {
             0: self.create_an_image(self.fig_image_0),
             1: self.create_an_image(self.fig_image_1),
@@ -112,20 +115,27 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.__set_using_calibration(False)
         config_mapping = get_config_mapping('id')
         self.data_handler = DataHandler(get_split_driver_class(SensorDriver, config_mapping), max_len=64)
+        self.data_handler.filter_time = MedianFilter(self.data_handler.driver, order=2)
+        self.data_handler.filters_for_each = {k :
+        StatisticalRevisionForEach({"SENSOR_SHAPE": config_mapping['shape'][k], "DATA_TYPE": float},
+                                   f"id_{k}", 0.5) for k in config_mapping['shape'].keys()}
+        self.filters_for_each = {k:
+            ExtensionFilter(
+            {"SENSOR_SHAPE": config_mapping['shape'][k], "DATA_TYPE": float},
+            weight_row=0.05, weight_col=0.05, iteration_count=5
+        ) for k in config_mapping['shape'].keys()}
+        self.data_handler.filter_after_zero = (RCFilterHP(self.data_handler.driver, alpha=0.01, limit=1e-4)
+                                               * RCFilter(self.data_handler.driver, alpha=1.2)
+                                               * OverallFocusFilter(self.data_handler.driver, power=2.))
         self.pre_initialize()
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.trigger)
         #
         self.time_last_image_update = np.uint32(0)
         # 是否处于使用标定状态
+        self.scheduled_set_zero = False
         self.__set_calibrator(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                            '../../calibrate_files/calibration_log.clb'))
-        # INDEMIND
-        if 'indemind' in self.mode:
-            from interfaces.multiple_zones.feature_extractor import FeatureExtractor
-            self.extractors = [FeatureExtractor({'name': str(_)}) for _ in range(3)]
-        else:
-            self.extractors = None
 
     def catch_exceptions(self, ty, value, tb):
         # 错误重定向为弹出对话框
@@ -140,7 +150,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 这里经常改
         if self._using_calibration:
             calibrated_range = self.data_handler.calibration_adaptor.range()
-            return [calibrated_range[0], calibrated_range[1] * 0.5]
+            return [calibrated_range[0] * 0.01, calibrated_range[1] * 0.05]
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
@@ -156,6 +166,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.timer.start(self.TRIGGER_TIME)
             self.set_enable_state()
             self.com_port.setEnabled(False)
+            self.scheduled_set_zero = True
 
     def stop(self):
         # 按停止键
@@ -312,17 +323,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
             return data
 
     def __set_filter(self):
-        self.data_handler.set_filter("None" if LAN == "en" else "无", self.combo_filter_time.currentText())
-        config['filter_time_index'] = self.combo_filter_time.currentIndex()
-        save_config()
+        pass
 
     def __set_interpolate_and_blur(self):
-        interpolate = int(self.combo_interpolate.currentText())
-        blur = float(self.combo_blur.currentText())
-        self.data_handler.set_interpolation_and_blur(interpolate=interpolate, blur=blur)
-        config['interpolate_index'] = self.combo_interpolate.currentIndex()
-        config['blur_index'] = self.combo_blur.currentIndex()
-        save_config()
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=0.5)
 
     def __set_calibrator(self, path=None):
         if path is None:
@@ -337,26 +341,20 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def __abandon_calibrator(self):
         self.data_handler.abandon_calibrator()
         self.__set_using_calibration(False)
+        self.scheduled_set_zero = True
 
     def initialize_buttons(self):
         self.button_start.clicked.connect(self.start)
         self.button_stop.clicked.connect(self.stop)
-        self.combo_filter_time.setCurrentIndex(config.get('filter_time_index'))
-        self.combo_interpolate.setCurrentIndex(config.get('interpolate_index'))
-        self.combo_blur.setCurrentIndex(config.get('blur_index'))
         self.__set_filter()
         self.__set_interpolate_and_blur()
-        self.combo_filter_time.currentIndexChanged.connect(self.__set_filter)
-        self.combo_interpolate.currentIndexChanged.connect(self.__set_interpolate_and_blur)
-        self.combo_blur.currentIndexChanged.connect(self.__set_interpolate_and_blur)
         self.set_enable_state()
         self.button_set_zero.clicked.connect(self.data_handler.set_zero)
-        self.button_abandon_zero.clicked.connect(self.data_handler.abandon_zero)
         self.button_save_to.clicked.connect(self.__trigger_save_button)
 
         # 标定功能
-        self.button_load_calibration.clicked.connect(lambda: self.__set_calibrator(path=None))
-        self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
+        # self.button_load_calibration.clicked.connect(lambda: self.__set_calibrator(path=None))
+        # self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
 
     def __trigger_save_button(self):
         if self.data_handler.output_file:
@@ -388,18 +386,17 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def trigger(self):
         try:
             self.data_handler.trigger()
-            if self.data_handler.value:
-                for idx_plot, plot in self.plots.items():
-                    data_filtered = self.extractors[idx_plot].stream_in(self.__apply_swap(self.data_handler.value[-1][idx_plot]))
-                    plot.setImage(data_filtered.T,
-                                  levels=self.y_lim)
-                    res = self.extractors[idx_plot].get_result_storage()
-                    if res:
-                        for key in ['press', 'slide', 'pat']:
-                            valid_data = [r[key] for r in res if r[key] is not None]
-                            self.dict_lines[idx_plot][key].setData(
-                                np.arange(len(valid_data)), valid_data,
-                                **LINE_STYLE)
+            if self.scheduled_set_zero:
+                success = self.data_handler.set_zero()
+                if success:
+                    self.scheduled_set_zero = False
+            if not self.scheduled_set_zero:
+                if self.data_handler.value:
+                    for idx_plot, plot in self.plots.items():
+                        fig_data = self.data_handler.value[-1][idx_plot]
+                        fig_data = self.filters_for_each[idx_plot].filter(fig_data)
+                        plot.setImage(self.__apply_swap(fig_data).T,
+                                      levels=self.y_lim)
         except USBError:
             self.stop()
             QtWidgets.qApp.quit()

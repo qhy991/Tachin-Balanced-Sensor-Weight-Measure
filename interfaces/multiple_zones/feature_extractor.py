@@ -58,7 +58,7 @@ class FeatureExtractor:
         self.data_updated = False
         # 滤波器，自适应置零
         self.path_filter_dump = os.path.join(os.path.dirname(__file__), 'dumping', f'filter_{self.name}.pkl')
-        self.filter = RCFilterHP({'SENSOR_SHAPE': SENSOR_SHAPE, 'DATA_TYPE': float}, alpha=0.02)
+        self.filter = RCFilterHP({'SENSOR_SHAPE': SENSOR_SHAPE, 'DATA_TYPE': float}, alpha=0.001)
         self.__load_filter()
         atexit.register(self.__save_filter)
         # 直接数据，形如8*8

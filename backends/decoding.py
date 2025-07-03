@@ -59,7 +59,6 @@ class Decoder:
                                        :offset + HEAD_LENGTH + CRC_LENGTH + self.sensor_shape[1] * self.bytes_per_point]
                 crc_calculated = self.__calculate_crc(data)
                 if False and crc_received[0].astype(np.uint16) * 256 + crc_received[1].astype(np.uint16) != crc_calculated:
-                    warnings.warn("CRC disabled for debugging purposes")
                     self.warn_info = 'CRC check failed'
                     flag = False
                 else:

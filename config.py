@@ -14,6 +14,12 @@ def get_config_mapping(suffix):
                               f'interfaces/config_mapping/config_mapping_{suffix}.json'), 'rt',
                  encoding='utf-8'),
         )
+        #
+        shape = {int(k): (config_mapping['range_mapping'][k][6], config_mapping['range_mapping'][k][5])
+        if config_mapping['range_mapping'][k][4]
+        else (config_mapping['range_mapping'][k][5], config_mapping['range_mapping'][k][6])
+                 for k in config_mapping['range_mapping'].keys()}
+        config_mapping.update({'shape': shape})
     except FileNotFoundError:
         config_mapping = None
 

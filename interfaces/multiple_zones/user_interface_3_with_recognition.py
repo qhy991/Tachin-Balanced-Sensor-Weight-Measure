@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
 from multiple_skins.tactile_spliting import get_split_driver_class
 import time
-from interfaces.multiple_zones.layout.layout_3_temp import Ui_Form
+from interfaces.multiple_zones.layout.layout_3 import Ui_Form
 import pyqtgraph
 import os
 #
@@ -78,24 +78,23 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.log_y_lim = Y_LIM_INITIAL
         self.dict_lines = {
             0: {
-                # 'press': self.create_a_line(self.fig_0_press),
-                # 'slide': self.create_a_line(self.fig_0_slide),
-                # 'pat': self.create_a_line(self.fig_0_pat)
+                'press': self.create_a_line(self.fig_0_press),
+                'slide': self.create_a_line(self.fig_0_slide),
+                'pat': self.create_a_line(self.fig_0_pat)
             },
             1: {
-                # 'press': self.create_a_line(self.fig_1_press),
-                # 'slide': self.create_a_line(self.fig_1_slide),
-                # 'pat': self.create_a_line(self.fig_1_pat)
+                'press': self.create_a_line(self.fig_1_press),
+                'slide': self.create_a_line(self.fig_1_slide),
+                'pat': self.create_a_line(self.fig_1_pat)
             },
             2: {
-                # 'press': self.create_a_line(self.fig_2_press),
-                # 'slide': self.create_a_line(self.fig_2_slide),
-                # 'pat': self.create_a_line(self.fig_2_pat)
+                'press': self.create_a_line(self.fig_2_press),
+                'slide': self.create_a_line(self.fig_2_slide),
+                'pat': self.create_a_line(self.fig_2_pat)
             }
         }
         # 完全展平
-        # self.list_lines = [self.dict_lines[i][key] for i in range(3) for key in ['press', 'slide', 'pat']]
-        self.list_lines = [self.dict_lines[i][key] for i in range(3) for key in []]
+        self.list_lines = [self.dict_lines[i][key] for i in range(3) for key in ['press', 'slide', 'pat']]
         self.plots = {
             0: self.create_an_image(self.fig_image_0),
             1: self.create_an_image(self.fig_image_1),
@@ -141,7 +140,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 这里经常改
         if self._using_calibration:
             calibrated_range = self.data_handler.calibration_adaptor.range()
-            return [calibrated_range[0] * 0.05, calibrated_range[1] * 0.25]
+            return [calibrated_range[0], calibrated_range[1] * 0.5]
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
@@ -396,7 +395,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
                                   levels=self.y_lim)
                     res = self.extractors[idx_plot].get_result_storage()
                     if res:
-                        for key in []:
+                        for key in ['press', 'slide', 'pat']:
                             valid_data = [r[key] for r in res if r[key] is not None]
                             self.dict_lines[idx_plot][key].setData(
                                 np.arange(len(valid_data)), valid_data,

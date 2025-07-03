@@ -78,15 +78,17 @@ class RCFilter(Filter):
 
 
 class RCFilterHP(Filter):
-    def __init__(self, sensor_class, alpha=0.75, *args, **kwargs):
+    def __init__(self, sensor_class, alpha=0.75, limit=None, *args, **kwargs):
         super(RCFilterHP, self).__init__(sensor_class)
         self.alpha = alpha
         self.y_low = 0  # 存储低通滤波状态
+        assert limit is None or limit > 0
+        self.limit = limit  # 可选的限制值
 
     @check_input
     def filter(self, x):
-        # 更新低通滤波值
-        self.y_low = self.alpha * x + (1 - self.alpha) * self.y_low
+        y_low = self.alpha * x + (1 - self.alpha) * self.y_low
+        self.y_low = (np.clip(y_low, self.y_low - self.limit, self.y_low + self.limit)) if self.limit is not None else y_low
         # 高通 = 原始信号 - 低通成分
         y_high = x - self.y_low
         return y_high
@@ -95,6 +97,35 @@ class RCFilterHP(Filter):
         super().reset()
         self.y_low = 0
 
+# 未测试
+class BandPassFilter:
+    def __init__(self, sensor_class, low_cutoff, high_cutoff, *args, **kwargs):
+        """
+        带通滤波器
+        :param sensor_class: 传感器的形状和数据类型
+        :param low_cutoff: 高通滤波器的截止频率（时间步数）
+        :param high_cutoff: 低通滤波器的截止频率（时间步数）
+        """
+        self.sensor_class = sensor_class
+        self.low_filter = RCFilterHP(sensor_class, alpha=1 - 1 / low_cutoff)
+        self.high_filter = RCFilter(sensor_class, alpha=1 - 1 / high_cutoff)
+
+    def filter(self, x):
+        """
+        对输入数据进行带通滤波
+        :param x: 输入数据
+        :return: 滤波后的数据
+        """
+        high_passed = self.low_filter.filter(x)
+        band_passed = self.high_filter.filter(high_passed)
+        return band_passed
+
+    def reset(self):
+        """
+        重置滤波器状态
+        """
+        self.low_filter.reset()
+        self.high_filter.reset()
 
 class RCFilterOneSide(Filter):
     def __init__(self, sensor_class, alpha=0.75, *args, **kwargs):
@@ -125,6 +156,19 @@ class MedianFilter(Filter):
         self.passed_values = np.roll(self.passed_values, 1, axis=0)
         self.passed_values[0, ...] = x
         return np.median(self.passed_values, axis=0)
+
+
+class MaximumFilter(Filter):
+    def __init__(self, sensor_class, order):
+        super(MaximumFilter, self).__init__(sensor_class)
+        self.passed_values = np.zeros((order + 1, self.SENSOR_SHAPE[0], self.SENSOR_SHAPE[1]),
+                                      dtype=self.DATA_TYPE)
+
+    @check_input
+    def filter(self, x):
+        self.passed_values = np.roll(self.passed_values, 1, axis=0)
+        self.passed_values[0, ...] = x
+        return np.max(self.passed_values, axis=0)
 
 
 class MeanFilter(Filter):
@@ -215,6 +259,21 @@ class FactorFilter(Filter):
         self.rate = rate
         self.reverse = reverse
 
+class OverallFocusFilter(Filter):
+
+    def __init__(self, sensor_class, power):
+        super(OverallFocusFilter, self).__init__(sensor_class)
+        self.power = power
+
+    @check_input
+    def filter(self, x):
+        x = np.maximum(x, 0.)
+        original_sum = np.sum(x)
+        target_sum = np.sum(x ** self.power) ** (self.power ** -1)
+        if original_sum == 0:
+            return x
+        else:
+            return x * (target_sum / original_sum)
 
 
 def build_preset_filters(sensor_class):

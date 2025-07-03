@@ -56,6 +56,23 @@ def convert_db_to_csv(path):
     else:
         print('文件不存在')
 
+def dataframe_to_numpy(data_by_col):
+    """
+    将DataFrame转换为numpy数组
+    :param data_by_col: DataFrame
+    :return: numpy数组
+    """
+    if data_by_col is not None:
+        # 只保留data_row_开头的列
+        data_row_cols = [col for col in data_by_col.columns if col.startswith('data_row_')]
+        # 形如data_row_0_col_0, data_row_0_col_1, ..., data_row_1_col_0, ...，识别行列数并折叠
+        row_count = len(pd.unique([col.split('_')[2] for col in data_row_cols]))
+        col_count = len(pd.unique([col.split('_')[4] for col in data_row_cols]))
+        data_array = data_by_col[data_row_cols].values.reshape((-1, row_count, col_count))
+        return data_array
+    else:
+        return None
+
 
 class ReplayDataSource:
     def __init__(self):

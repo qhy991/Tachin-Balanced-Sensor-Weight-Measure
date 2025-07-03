@@ -2,8 +2,8 @@
 显示界面，适用于large采集卡
 顺便可以给small采集卡使用
 """
-# LAN = "chs"
-LAN = "en"
+LAN = "chs"
+# LAN = "en"
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
@@ -20,8 +20,9 @@ import sys
 import traceback
 import numpy as np
 from data_processing.data_handler import DataHandler
-from backends.sensor_driver import LargeSensorDriver
+from backends.usb_driver import LargeUsbSensorDriver
 from server.socket_client import SocketClient
+from interfaces.public.utils import set_logo
 #
 from config import config, save_config
 
@@ -42,7 +43,7 @@ LABEL_RESISTANCE = 'Resistance/(kΩ)'
 Y_LIM_INITIAL = config['y_lim']
 X_INVERT = config['x_invert']
 Y_INVERT = config['y_invert']
-DISPLAY_RANGE = [[25, 39], [25, 39]]
+DISPLAY_RANGE = [[0, 64], [0, 64]]
 MINIMUM_Y_LIM = 0.0
 MAXIMUM_Y_LIM = 4.0
 assert Y_LIM_INITIAL.__len__() == 2
@@ -90,7 +91,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self.catch_exceptions
         #
         if mode == 'direct':
-            self.data_handler = DataHandler(LargeSensorDriver)
+            self.data_handler = DataHandler(LargeUsbSensorDriver)
         elif mode == 'socket':
             self.data_handler = DataHandler(SocketClient)
         else:
@@ -159,13 +160,14 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.set_enable_state()
 
     def pre_initialize(self):
-        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
-                                                              "E-skin Display" if LAN == "en" else
-                                                              "电子皮肤采集程序-途见科技"))
-        self.setWindowIcon(QtGui.QIcon("./ordinary/layout/tujian.ico"))
-        logo_path = "./ordinary/resources/logo.png"
-        self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
-        self.label_logo.setScaledContents(True)
+        # self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
+        #                                                       "E-skin Display" if LAN == "en" else
+        #                                                       "电子皮肤采集程序-途见科技"))
+        # self.setWindowIcon(QtGui.QIcon("./ordinary/layout/tujian.ico"))
+        # logo_path = "./ordinary/resources/logo.png"
+        # self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
+        # self.label_logo.setScaledContents(True)
+        set_logo(self)
         self.initialize_background()
         self.initialize_image()
         self.initialize_buttons()
@@ -317,7 +319,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.data_handler.set_filter("无", "Average-0.2s" if LAN == "en" else "均值-0.2s")
 
     def __set_interpolate_and_blur(self):
-        self.data_handler.set_interpolation_and_blur(interpolate=4, blur=0.125)
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=1.0)
 
     def initialize_buttons(self):
         self.button_start.clicked.connect(self.start)
@@ -350,8 +352,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
         try:
             self.data_handler.trigger()
             time_now = time.time()
-            if self.data_handler.smoothed_value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
-                self.plot.setImage(self.__apply_swap(log(np.array(self.data_handler.smoothed_value[-1].T))),
+            if self.data_handler.value and time_now < self.last_trigger_time + self.TRIGGER_TIME:
+                self.plot.setImage(self.__apply_swap(log(np.array(self.data_handler.value[-1].T))),
                                    levels=self.y_lim)
                 self.__set_xy_range()
                 self.plot.getView().invertX(X_INVERT)
@@ -368,9 +370,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def trigger_null(self):
         self.plot.setImage(self.__apply_swap(np.zeros(
-            [_ * self.data_handler.interpolation.interp for _ in self.data_handler.driver.SENSOR_SHAPE])).T
-                           - MAXIMUM_Y_LIM,
-                           levels=self.y_lim)
+            [_ * self.data_handler.interpolation.interp for _ in self.data_handler.driver.SENSOR_SHAPE])).T,
+                           levels=(0., 1.))
         self.__set_xy_range()
         self.plot.getView().invertX(X_INVERT)
         self.plot.getView().invertY(Y_INVERT)
@@ -384,6 +385,6 @@ class Window(QtWidgets.QWidget, Ui_Form):
 def start(mode='direct'):
     app = QtWidgets.QApplication(sys.argv)
     w = Window(mode)
-    w.trigger_null()
     w.show()
+    w.trigger_null()
     sys.exit(app.exec_())
