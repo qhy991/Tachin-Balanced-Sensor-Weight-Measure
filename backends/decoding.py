@@ -133,6 +133,8 @@ class Decoder:
                         * (2 ** (8 * (self.bytes_per_point - bit - 1)))
                         for bit, _ in enumerate(self.finished_frame)]).reshape(self.sensor_shape)
             # 引入底层滤波器
+            if self.buffer.__len__() == self.buffer.maxlen:
+                print("缓冲区满")
             self.buffer.append((data, self.last_finish_time))
 
     def __abort_frame(self):

@@ -181,7 +181,7 @@ class CanDevice:
                 index = self.rx_vci_can_obj.STRUCT_ARRAY[i].ID
                 # if index == 1:
                 #     print(f'ID{index}: ',  '\t '.join([hex(_) for _ in ret]))
-                self.data_storages[index].extend(ret)
+                self.data_storages[index - 1].extend(ret)
                 # print(ret)
         # else:
         #     time.sleep(0.001)
@@ -192,8 +192,8 @@ if __name__ == '__main__':
     import json
     config_array_24_16 = json.load(open('config_array_24_16.json', 'rt'))
     config_array_16 = json.load(open('config_array_16.json', 'rt'))
-    indices = [1, 2, 3]
-    sb = CanBackend({1: config_array_24_16, 2: config_array_16, 3: config_array_16})
+    indices = [0, 1, 2]
+    sb = CanBackend({0: config_array_24_16, 1: config_array_16, 2: config_array_16})
     sb.start(None)  # 设备区分还没做
     print('start')
     t_last = None
@@ -205,7 +205,7 @@ if __name__ == '__main__':
             while True:
                 bits, t = sb.get(index)
                 if bits is not None:
-                    print(index, np.max(bits), np.mean(bits))
+                    print(index, np.max(bits), np.sum(bits))
                     count_down -= 1
                     if count_down == 0:
                         # print(f"帧率{round(COUNT_DOWN / (time.time() - time_last_count_down), 1)}")
@@ -214,7 +214,7 @@ if __name__ == '__main__':
                     # print(t)
                     if t_last is not None:
                         if t - t_last > 1 / 100:
-                            print(t - t_last)
+                            # print(t - t_last)
                             pass
                     t_last = t
                 else:

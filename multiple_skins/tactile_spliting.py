@@ -21,6 +21,10 @@ class SplitDataDict:
         self.range_mapping = range_mapping
         self.unit_filter_objs = []
 
+    @property
+    def dtype(self):
+        return self.full_data.dtype
+
     # 重载四则运算
 
     def __add__(self, other):

@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
 from multiple_skins.tactile_spliting import get_split_driver_class
 import time
-from interfaces.multiple_zones.layout.layout_3 import Ui_Form
+from interfaces.multiple_zones.layout.layout_3_seat import Ui_Form
 import pyqtgraph
 import os
 #
@@ -79,19 +79,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.log_y_lim = Y_LIM_INITIAL
         self.dict_lines = {
             0: {
-                # 'press': self.create_a_line(self.fig_0_press),
-                # 'slide': self.create_a_line(self.fig_0_slide),
-                # 'pat': self.create_a_line(self.fig_0_pat)
             },
             1: {
-                # 'press': self.create_a_line(self.fig_1_press),
-                # 'slide': self.create_a_line(self.fig_1_slide),
-                # 'pat': self.create_a_line(self.fig_1_pat)
             },
             2: {
-                # 'press': self.create_a_line(self.fig_2_press),
-                # 'slide': self.create_a_line(self.fig_2_slide),
-                # 'pat': self.create_a_line(self.fig_2_pat)
             }
         }
         # 完全展平
@@ -112,31 +103,11 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 标定状态
         self.scaling = log
         self.__set_using_calibration(False)
-        if 'indemind' in mode:
-            config_mapping = get_config_mapping('id')
-            self.data_handler = DataHandler(get_split_driver_class(SensorDriver, config_mapping), max_len=64)
-        elif 'seat' in mode:
+        if 'seat' in mode:
             self.data_handler = DataHandler(SensorDriver, max_len=64)
-            self.horizontalLayout_2.setStretch(0, 3)
-            self.horizontalLayout_2.setStretch(1, 2)
-            self.horizontalLayout_2.setStretch(2, 2)
         else:
             raise NotImplementedError()
-        self.data_handler.filter_time = MedianFilter(self.data_handler.driver, order=2)
-        # self.data_handler.filters_for_each = {k :
-        # StatisticalRevisionForEach({"SENSOR_SHAPE": config_mapping['shape'][k], "DATA_TYPE": float},
-        #                            f"id_{k}", 0.5) for k in config_mapping['shape'].keys()}
-        if 'indemind' in mode:
-            self.filters_for_each = {k:
-                ExtensionFilter(
-                {"SENSOR_SHAPE": config_mapping['shape'][k], "DATA_TYPE": float},
-                weight_row=0.05, weight_col=0.05, iteration_count=5
-            ) for k in config_mapping['shape'].keys()}
-        else:
-            self.filters_for_each = None
-        self.data_handler.filter_after_zero = (RCFilterHP(self.data_handler.driver, alpha=0.01, limit=1e-4)
-                                               * RCFilter(self.data_handler.driver, alpha=1.2)
-                                               * OverallFocusFilter(self.data_handler.driver, power=2.))
+        self.filters_for_each = None
         self.pre_initialize()
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.trigger)
@@ -160,7 +131,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 这里经常改
         if self._using_calibration:
             calibrated_range = self.data_handler.calibration_adaptor.range()
-            return [calibrated_range[0] * 0.01, calibrated_range[1] * 0.05]
+            return [calibrated_range[0] * 0.0, calibrated_range[1] * 0.5]
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 

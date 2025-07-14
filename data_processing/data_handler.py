@@ -41,10 +41,10 @@ class DataHandler:
         self.curve_on = curve_on
         #
         # region_count为0表示为单片；否则为分片
-        if template_sensor_driver.__name__ == 'TactileDriverWithPreprocessing':
+        try:
             self.region_indices = template_sensor_driver.range_mapping.keys()
-        else:
-            self.region_count = []
+        except AttributeError:
+            self.region_indices = []
         # 分片模式下，数据的处理方式会有区别
         self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 标定器
         self.using_calibration = False

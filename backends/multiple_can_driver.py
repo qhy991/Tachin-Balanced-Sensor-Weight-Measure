@@ -12,18 +12,18 @@ class SeatSensorDriver(AbstractSensorDriver):
     SCALE = (32768. * 25. / 5.) ** -1  # 示数对应到电阻倒数的系数。与采集卡有关
     SENSOR_SHAPE = (56, 16)
     range_mapping = {
-        1: ((slice(0, 24), slice(0, 16)), False, False, False, 1.0, 1.0),
-        2: ((slice(24, 40), slice(0, 16)), False, False, False, 1.0, 1.0),
-        3: ((slice(40, 56), slice(0, 16)), False, False, False, 1.0, 1.0)
+        0: ((slice(0, 24), slice(0, 16)), False, False, False, 1.0, 1.0),
+        1: ((slice(24, 40), slice(0, 16)), False, False, False, 1.0, 1.0),
+        2: ((slice(40, 56), slice(0, 16)), False, False, False, 1.0, 1.0)
     }
 
     def __init__(self, time_tolerance=0.5):
         super(SeatSensorDriver, self).__init__()
 
-        config_array_24_16 = json.load(open('config_array_24_16.json', 'rt'))
-        config_array_16 = json.load(open('config_array_16.json', 'rt'))
-        self.indices = [1, 2, 3]
-        sb = CanBackend({1: config_array_24_16, 2: config_array_16, 3: config_array_16})
+        config_array_24_16 = json.load(open(os.path.join(os.path.dirname(__file__), 'config_array_24_16.json'), 'rt'))
+        config_array_16 = json.load(open(os.path.join(os.path.dirname(__file__),'config_array_16.json'), 'rt'))
+        self.indices = [0, 1, 2]
+        sb = CanBackend({0: config_array_24_16, 1: config_array_16, 2: config_array_16})
         self.time_tolerance = time_tolerance
         self.sensor_backend = sb
 
@@ -46,6 +46,7 @@ class SeatSensorDriver(AbstractSensorDriver):
         for index in self.indices:
             if not self.sensor_backend.is_ready(index):
                 process_flag = False
+                break
         if process_flag:
             success_flag = True
             for index in self.indices:
@@ -62,10 +63,11 @@ class SeatSensorDriver(AbstractSensorDriver):
                     if data is not None:
                         result_dict[index] = (data, t)
                         ts[index] = t
+                        print(f"跳过1条通道{index}的数据")
                     else:
                         break
             if success_flag:
-                print(f"时间不一致性：{np.max(list(ts.values())) - np.min(list(ts.values()))}")
+                # print(f"时间不一致性：{np.max(list(ts.values())) - np.min(list(ts.values()))}")
                 return self.__make_split_data_dict(result_dict), np.mean(list(ts.values()))
             else:
                 warnings.warn("读取异常")
@@ -102,10 +104,12 @@ if __name__ == '__main__':
         while True:
             data, timestamp = driver.get()
             if data is not None:
-                print("Data received:", data)
-                print("Timestamp:", timestamp)
+                for index in range(3):
+                    print("Data received:", np.sum(data[index]))
+                # print("Timestamp:", timestamp)
                 if last_timestamp is not None:
-                    print("Time difference:", timestamp - last_timestamp)
+                    # print("Time difference:", timestamp - last_timestamp)
+                    pass
                 last_timestamp = timestamp
     else:
         print("Failed to connect to CAN device.")
