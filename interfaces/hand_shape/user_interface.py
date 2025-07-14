@@ -51,18 +51,26 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 重定向提示
         sys.excepthook = self._catch_exceptions
         #
+        default_calibration_name = None
         if mode == 'zw':
             from backends.usb_driver import ZWUsbSensorDriver as SensorDriver
             # 修改horizontalLayout_3的layoutStretch
             # self.horizontalLayout_3.setStretch(3, 2)
-        elif mode in ['zy', 'zr']:
+        elif mode in ['zy', 'zr', 'jkh']:
             from backends.usb_driver import ZYUsbSensorDriver as SensorDriver
             self.horizontalLayout_3.setStretch(0, 1)
             self.horizontalLayout_3.setStretch(1, 1)
+            default_calibration_name = f'calibration_{mode}.clb'
+        elif mode in ['z_v']:
+            from backends.usb_driver import ZWUsbSensorDriverWithValidation as SensorDriver
+            self.horizontalLayout_3.setStretch(0, 1)
+            self.horizontalLayout_3.setStretch(1, 1)
+            default_calibration_name = 'calibration_z.clb'
         elif mode == 'zv':
             from backends.usb_driver import ZVUsbSensorDriver as SensorDriver
             self.horizontalLayout_3.setStretch(0, 1)
             self.horizontalLayout_3.setStretch(1, 1)
+            default_calibration_name = 'calibration_z.clb'
         elif mode == 'gl':
             from backends.usb_driver import GLUsbSensorDriver as SensorDriver
             self.horizontalLayout_3.setStretch(0, 1)
@@ -111,8 +119,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.real_exit = False
         #
         self.scheduled_set_zero = False
-        self.__set_calibrator(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           '../../calibrate_files/z_calibration_file.clb'))
+        if default_calibration_name is not None:
+            self.__set_calibrator(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                               f'../../calibrate_files/{default_calibration_name}'))
 
     def keyPressEvent(self, event):
         if event.key() == QtCore.Qt.Key_F11:
@@ -139,7 +148,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
                 return
             self.is_running = True
             self.timer.start(self.TRIGGER_TIME)
-            self.set_enable_state()
+            self.__set_enable_state()
             self.com_port.setEnabled(False)
             self.scheduled_set_zero = True
 
@@ -150,7 +159,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
                 self.timer.stop()
             self.data_handler.disconnect()
             self.hist_trigger.clear()
-            self.set_enable_state()
+            self.__set_enable_state()
             self.scheduled_set_zero = False
 
     def clear(self):
@@ -160,9 +169,9 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def pre_initialize(self):
         set_logo(self)
         self.initialize_buttons()
-        self.set_enable_state()
+        self.__set_enable_state()
 
-    def set_enable_state(self):
+    def __set_enable_state(self):
         self.button_start.setEnabled(not self.is_running)
         self.button_stop.setEnabled(self.is_running)
         self.label_output.setText(STR_CONNECTED if self.is_running else STR_DISCONNECTED)
@@ -180,19 +189,33 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.button_set_zero.clicked.connect(self.data_handler.set_zero)
 
         self.button_abandon_zero.clicked.connect(self.clear)
-        self.set_enable_state()
+        self.__set_enable_state()
         self.com_port.setText(config['port'])
         self.button_load_calibration.clicked.connect(lambda: self.__set_calibrator(None))
+        self.button_save_to.clicked.connect(self.__trigger_save_button)
         # self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
 
     def __set_calibrator(self, path=None):
         if path is None:
-            path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.clb)")[0]
+            path = QtWidgets.QFileDialog.getOpenFileName(self, "选择标定文件", "", "标定文件 (*.clb; *.csv)")[0]
         if path:
             flag = self.data_handler.set_calibrator(path, forced_to_use_clb=True)
             if flag:
                 self.hand_plot_manager.set_axes_using_calibration(True)
                 self.scheduled_set_zero = True
+
+    def __trigger_save_button(self):
+        if self.data_handler.output_file:
+            self.data_handler.close_output_file()
+        else:
+            file = QtWidgets.QFileDialog.getSaveFileName(
+                self,
+                "选择输出路径",
+                "",
+                "数据库 (*.db)")
+            if file[0]:
+                self.data_handler.link_output_file(file[0])
+        self.__set_enable_state()
 
     def __abandon_calibrator(self):
         self.data_handler.abandon_calibrator()

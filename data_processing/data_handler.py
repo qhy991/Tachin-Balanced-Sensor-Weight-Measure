@@ -42,9 +42,9 @@ class DataHandler:
         #
         # region_count为0表示为单片；否则为分片
         if template_sensor_driver.__name__ == 'TactileDriverWithPreprocessing':
-            self.region_count = template_sensor_driver.range_mapping.__len__()
+            self.region_indices = template_sensor_driver.range_mapping.keys()
         else:
-            self.region_count = 0
+            self.region_count = []
         # 分片模式下，数据的处理方式会有区别
         self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 标定器
         self.using_calibration = False
@@ -86,7 +86,7 @@ class DataHandler:
             self.output_file = sqlite3.connect(path)
             self.path_db = path
             self.cursor = self.output_file.cursor()
-            if self.region_count == 0:  # 无分区
+            if not self.region_indices:  # 无分区
                 command = ('create table data (time float, time_after_begin float, '
                           + ', '.join([f'data_row_{i} text'
                                       for i in range(self.driver.SENSOR_SHAPE[0])
@@ -98,8 +98,8 @@ class DataHandler:
                 # SplitDataDict 模式
                 command = ('create table data (time float, time_after_begin float, '
                           + ', '.join([f'data_region_{i}_row_{j} text'
-                                       for i in range(self.region_count)
-                                       for j in range(self.driver.SENSOR_SHAPE[0])
+                                       for i in self.region_indices
+                                       for j in range(self.driver.get_zeros(i).shape[0])
                                        ]) + ','
                             + ', '.join(['zero_set int', 'using_calibration int',
                                          'summed int', 'maximum int', 'tracing int'])
@@ -109,7 +109,7 @@ class DataHandler:
         except PermissionError as e:
             raise Exception('文件无法写入。可能正被占用')
         except Exception as e:
-            raise Exception('文件无法写入')
+            raise e
 
     def write_to_file(self, time_now, time_after_begin, data, summed, maximum, tracing):
         #
@@ -119,7 +119,7 @@ class DataHandler:
             if self.next_dump == 0.:
                 self.next_dump = time_after_begin
             if time_after_begin >= self.next_dump:
-                if self.region_count == 0:
+                if not self.region_indices:
                     command = (f'insert into data values ({time_now}, {time_after_begin}, '
                                + ', '.join(['\"' + json.dumps(_.tolist()) + '\"' for _ in data]) + ','
                                + ', '.join([str(_) for _ in [int(self.zero_set), int(self.using_calibration),

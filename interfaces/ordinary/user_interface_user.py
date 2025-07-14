@@ -163,7 +163,7 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def __set_calibrator(self):
         path = QtWidgets.QFileDialog.getOpenFileName(
-            self, "选择标定文件", "", "标定文件 (*.clb, *.csv)")[0]
+            self, "选择标定文件", "", "标定文件 (*.clb; *.csv)")[0]
         if path:
             flag = self.data_handler.set_calibrator(path)
             if flag:

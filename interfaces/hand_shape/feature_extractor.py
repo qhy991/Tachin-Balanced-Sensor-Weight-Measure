@@ -25,9 +25,10 @@ class FingerFeatureExtractor:
         self.center_y_diff_last = 0
 
     def __scale__(self, skin_data):
-        skin_data = skin_data / SCALE
-        return (np.log10(np.maximum(skin_data, self.skin_data_threshold)) - np.log10(self.skin_data_threshold))\
-            * self.contact_strength_scale
+        return (skin_data - self.skin_data_threshold) * self.contact_strength_scale
+        # skin_data = skin_data / SCALE
+        # return (np.log10(np.maximum(skin_data, self.skin_data_threshold)) - np.log10(self.skin_data_threshold))\
+        #     * self.contact_strength_scale
 
     def __c__call__(self, skin: np.ndarray):
         skin = self.__scale__(skin)
@@ -141,6 +142,7 @@ class FingerFeatureExtractor:
         #
         center_x_diff = (center_x_this - self.center_x_smoothed) * magnitude
         center_y_diff = (center_y_this - self.center_y_smoothed) * magnitude
+
         #
 
         if self.contact_strength_smoothed * self.smooth_for_move + contact_strength * (1. - self.smooth_for_move) > 0:
@@ -158,10 +160,12 @@ class FingerFeatureExtractor:
             self.frame_last = np.zeros_like(skin)
         self.frame_last = self.frame_last * self.smooth_for_move + skin.copy() * (1. - self.smooth_for_move)
         self.contact_strength_smoothed = self.contact_strength_smoothed * self.smooth_for_move + contact_strength * (1. - self.smooth_for_move)
-
+        #
+        # print(contact_strength, center_x_diff, center_y_diff)
+        #
         return {'contact_strength': contact_strength,
-                'center_x_diff': center_x_diff * 2,
-                'center_y_diff': center_y_diff * 2}
+                'center_x_diff': center_x_diff * self.move_scale,
+                'center_y_diff': center_y_diff * self.move_scale}
 
     def __c__call__(self, skin: np.ndarray):
         skin = self.__scale__(skin)

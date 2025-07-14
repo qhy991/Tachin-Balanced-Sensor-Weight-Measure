@@ -6,8 +6,10 @@ from collections import deque
 import time
 import numpy as np
 from backends.decoding import Decoder
+from array import array
+import warnings
 
-
+DELAY = 0.002
 MESSAGE_SIZE = 1024
 
 
@@ -17,6 +19,8 @@ class UsbBackend:
         # USB相关
         self.bc = BulkChannel()
         self.epi_t = None
+        self.epvo_t = None
+        self.epvi_t = None
         # 解包
         self.decoder = Decoder(config_array)
         self.err_queue = deque(maxlen=1)
@@ -24,6 +28,9 @@ class UsbBackend:
         self.active = False
         #
         self.lock_devs = threading.Lock()
+        # 校验
+        self.dna = None
+        self.key_set = False
 
     def get_available_sources(self):
         names_found = None
@@ -37,9 +44,11 @@ class UsbBackend:
             if self.epi_t is None:
                 # 似乎由于USB的缺陷，无法重连
                 with self.lock_devs:
-                    interface_t, epo_t, epi_t\
+                    interface_t, epi_t, epvo_t, epvi_t\
                         = self.bc.get_dev_interface_epio(device=self.bc.devices_found[idx])
                 self.epi_t = epi_t
+                self.epvo_t = epvo_t
+                self.epvi_t = epvi_t
             self.active = True
             threading.Thread(target=self.__read_forever, daemon=True).start()
             return True
@@ -54,14 +63,82 @@ class UsbBackend:
             # 因此，进程一旦曾经成功连接到USB端口，就无法再改变，除非重启程序
             if self.epi_t is None:
                 self.bc.update_backend(self.bc.get_backend())
-                interface_t, epo_t, epi_t = self.bc.get_interfaces_list(rev)
+                interface_t, epi_t, epvo_t, epvi_t = self.bc.get_interfaces_list(rev)
                 self.epi_t = epi_t
+                self.epvo_t = epvo_t
+                self.epvi_t = epvi_t
             self.active = True
             threading.Thread(target=self.__read_forever, daemon=True).start()
             return True
         except usb.core.USBError as e:
             print('Failed to connect to USB device')
             raise e
+
+    def query_dna(self):
+        if self.active:
+            # 发送查询DNA的指令
+            try:
+                while True:
+                    try:
+                        self.epvi_t.read(1)
+                    except usb.core.USBError as e:
+                        break
+                self.epvo_t.write(b'\x3c\x01')
+                time.sleep(DELAY)  # 等待设备响应
+                dna_response = array('B', [])
+                while True:
+                    try:
+                        dna_response.extend(self.epvi_t.read(1))
+                    except usb.core.USBError as e:
+                        break
+                parts = [dna_response[i] << 8 | dna_response[i + 1] for i in range(0, 8, 2)]
+                dna = '_'.join(f'{p:04X}' for p in parts)
+                print(dna)
+                return dna
+            except usb.core.USBError as e:
+                self.err_queue.append(e)
+                print(e)
+                raise Exception('获取板卡DNA失败')
+        return None
+
+    def set_key(self, key_str):
+        # key为字符串输入，形如D854_2791_C023_89B4
+        if self.active:
+            assert isinstance(key_str, str) and key_str.__len__() == 19, "Key格式错误"
+            try:
+                while True:
+                    try:
+                        self.epvi_t.read(1)
+                    except:
+                        break
+                self.epvo_t.write(b'\x3c\x02')
+                time.sleep(DELAY)
+                hex_parts = key_str.split('_')
+                key_bytes = b''.join(int(part, 16).to_bytes(2, 'big') for part in hex_parts)
+                while True:
+                    try:
+                        self.epvi_t.read(1)
+                    except:
+                        break
+                self.epvo_t.write(key_bytes)
+                time.sleep(DELAY)
+                self.epvo_t.write(b'\x3c\x03')
+                time.sleep(DELAY)
+                read = self.epvi_t.read(16).tobytes()
+                # read形如“array('B', [85, 170])”。将它与55aa或3355对比
+                if read == b'\x55\xaa':
+                    self.key_set = True
+                    return True
+                elif read == b'\x33\x55':
+                    self.key_set = False
+                    print('激活失败')
+                    return False
+                else:
+                    print("激活状态未知")
+                    return False
+            except usb.core.USBError as e:
+                warnings.warn("板卡版本可能不匹配")
+                return True
 
     def stop(self):
         self.active = False
@@ -86,6 +163,7 @@ class UsbBackend:
 
     def get_last(self):
         return self.decoder.get_last()
+
 
 class BulkChannel:
     # USB协议相关
@@ -150,21 +228,47 @@ class BulkChannel:
         cfg = device.get_active_configuration()
         interface = cfg[(0, 0)]
 
-        epo = usb.util.find_descriptor(
-            interface,
-            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT)
+        def custom_match_data_in(e):
+            addr = e.bEndpointAddress
+            ep_num = addr & 0x0f
+            flag_in = usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN
+            flag_ep = ep_num == 0x06
+            return flag_in and flag_ep
+
+        def custom_match_validate_query(e):
+            addr = e.bEndpointAddress
+            ep_num = addr & 0x0f
+            flag_out = usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
+            flag_ep = ep_num == 0x04
+            return flag_out and flag_ep
+
+        def custom_match_validate_receive(e):
+            addr = e.bEndpointAddress
+            ep_num = addr & 0x0f
+            flag_in = usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN
+            flag_ep = ep_num == 0x08
+            return flag_in and flag_ep
 
         epi = usb.util.find_descriptor(
             interface,
-            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN)
+            custom_match=custom_match_data_in)
 
-        return interface, epo, epi
+        epvo = usb.util.find_descriptor(
+            interface,
+            custom_match=custom_match_validate_query)
+
+        epvi = usb.util.find_descriptor(
+            interface,
+            custom_match=custom_match_validate_receive
+        )
+
+        return interface, epi, epvo, epvi
 
     def get_interfaces_list(self, rev):
         """仅仅只返回由现存interfaces name组成的list"""
         devices = self.get_usb_devices(rev)
         dev_t = devices
         # 返回cfg的interface/endpoint bulk out/endpoint bulk in
-        interface_t, epo_t, epi_t = self.get_dev_interface_epio(device=dev_t)
-        return interface_t, epo_t, epi_t
+        interface_t, epi_t, epvo_t, epvi_t = self.get_dev_interface_epio(device=dev_t)
+        return interface_t, epi_t, epvo_t, epvi_t
 

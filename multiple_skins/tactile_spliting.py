@@ -16,7 +16,7 @@ class SplitDataDict:
     # 注意，使用apply_filter_for_each对各分片应用滤波器时，处理机制会较为特殊
 
     def __init__(self, full_data, range_mapping: dict):
-        self.full_data = np.zeros(shape=full_data.shape)
+        self.full_data = np.zeros(shape=full_data.shape, dtype=full_data.dtype)
         self.full_data[...] = full_data.__array__()  # 全阵列
         self.range_mapping = range_mapping
         self.unit_filter_objs = []
@@ -82,7 +82,7 @@ class SplitDataDict:
             xy_swap = info[3]
             scale = info[4]
             power = info[5]
-            data_this = ((np.maximum(self.full_data[slicing], 0.)) ** power) * scale
+            data_this = (((np.maximum(self.full_data[slicing], 0.)) ** power) * scale).astype(self.full_data.dtype)
 
             if x_invert:
                 data_this = data_this[::-1, :]

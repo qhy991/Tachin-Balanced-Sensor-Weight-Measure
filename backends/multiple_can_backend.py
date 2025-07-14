@@ -1,4 +1,5 @@
 # CAN通讯协议读取示例代码
+# 多设备版
 import os.path
 from ctypes import *
 import threading
@@ -15,12 +16,13 @@ baud_rate = int(config_can['baud_rate'])
 
 
 class CanBackend:
-    def __init__(self, config_array):
+    def __init__(self, index_to_config_array):
         # 在子线程中读取CAN协议传来的数据。主线程会将数据取走
         # CAN卡对连续读数要求较高
-        self.can = CanDevice()
+        self.index_to_config_array = index_to_config_array
+        self.can = CanDevice(list(self.index_to_config_array.keys()))
         # 解包
-        self.decoder = Decoder(config_array)
+        self.index_to_decoder = {k: Decoder(config_array) for k, config_array in self.index_to_config_array.items()}
         self.err_queue = deque(maxlen=1)
         #
         self.active = False
@@ -52,19 +54,23 @@ class CanBackend:
 
     def read(self):
         try:
-            last_message = self.can.read()
+            index_to_last_message = self.can.read()
         except Exception as e:
             self.stop()
             self.err_queue.append(e)
             print(e)
             raise Exception('CAN read/write failed')
-        self.decoder(last_message)
+        for index, last_message in index_to_last_message.items():
+            self.index_to_decoder[index](last_message)
 
-    def get(self):
-        return self.decoder.get()
+    def is_ready(self, index):
+        return self.index_to_decoder[index].buffer
 
-    def get_last(self):
-        return self.decoder.get_last()
+    def get(self, index):
+        return self.index_to_decoder[index].get()
+
+    def get_last(self, index):
+        return self.index_to_decoder[index].get()
 
 
 LEN = 2500
@@ -107,14 +113,15 @@ class CanDevice:
             self.SIZE = num_of_structs  # 结构体长度
             self.ADDR = self.STRUCT_ARRAY[0]  # 结构体数组地址  byref()转c地址
 
-    def __init__(self):
+    def __init__(self, indices):
         CanDLLName = os.path.join(os.path.dirname(__file__), './ControlCAN.dll')  # 把DLL放到对应的目录下
         self.canDLL = windll.LoadLibrary(CanDLLName)
         # Linux系统下使用下面语句，编译命令：python3 python3.8.0.py
         # canDLL = cdll.LoadLibrary('./libcontrolcan.so')
         self.rx_vci_can_obj = CanDevice.VCI_CAN_OBJ_ARRAY(LEN)  # 结构体数组
         print(CanDLLName)
-        self.data_storage = deque(maxlen=LEN)
+        self.indices = indices
+        self.data_storages = {index: deque(maxlen=LEN) for index in self.indices}
         self.communicate_thread = threading.Thread(target=self.communicate_forever, daemon=True)
         self.activated = False
 
@@ -157,8 +164,8 @@ class CanDevice:
 
     def read(self):
         # 取走self.data_storage里的数据
-        ret_all = self.data_storage
-        self.data_storage = deque(maxlen=LEN)
+        ret_all = self.data_storages
+        self.data_storages = {index: deque(maxlen=LEN) for index in self.indices}
         return ret_all
 
     def communicate_forever(self):
@@ -171,8 +178,10 @@ class CanDevice:
             for i in range(f):
                 # if self.rx_vci_can_obj.STRUCT_ARRAY[i].ID == 0:
                 ret = list(self.rx_vci_can_obj.STRUCT_ARRAY[i].Data)[:self.rx_vci_can_obj.STRUCT_ARRAY[i].DataLen]
-                print(f'ID{self.rx_vci_can_obj.STRUCT_ARRAY[i].ID}: ',  '\t'.join([hex(_) for _ in ret]))
-                self.data_storage.extend(ret)
+                index = self.rx_vci_can_obj.STRUCT_ARRAY[i].ID
+                # if index == 1:
+                #     print(f'ID{index}: ',  '\t '.join([hex(_) for _ in ret]))
+                self.data_storages[index].extend(ret)
                 # print(ret)
         # else:
         #     time.sleep(0.001)
@@ -181,8 +190,10 @@ class CanDevice:
 if __name__ == '__main__':
     # 简单的调用测试
     import json
-    config_array = json.load(open('config_array_32.json', 'rt'))
-    sb = CanBackend(config_array)
+    config_array_24_16 = json.load(open('config_array_24_16.json', 'rt'))
+    config_array_16 = json.load(open('config_array_16.json', 'rt'))
+    indices = [1, 2, 3]
+    sb = CanBackend({1: config_array_24_16, 2: config_array_16, 3: config_array_16})
     sb.start(None)  # 设备区分还没做
     print('start')
     t_last = None
@@ -190,22 +201,23 @@ if __name__ == '__main__':
     count_down = COUNT_DOWN
     time_last_count_down = time.time()
     while True:
-        while True:
-            bits, t = sb.get()
-            if bits is not None:
-                print(np.max(bits), np.mean(bits))
-                count_down -= 1
-                if count_down == 0:
-                    # print(f"帧率{round(COUNT_DOWN / (time.time() - time_last_count_down), 1)}")
-                    count_down = COUNT_DOWN
-                    time_last_count_down = time.time()
-                # print(t)
-                if t_last is not None:
-                    if t - t_last > 1 / 100:
-                        print(t - t_last)
-                        pass
-                t_last = t
-            else:
-                break
+        for index in indices:
+            while True:
+                bits, t = sb.get(index)
+                if bits is not None:
+                    print(index, np.max(bits), np.mean(bits))
+                    count_down -= 1
+                    if count_down == 0:
+                        # print(f"帧率{round(COUNT_DOWN / (time.time() - time_last_count_down), 1)}")
+                        count_down = COUNT_DOWN
+                        time_last_count_down = time.time()
+                    # print(t)
+                    if t_last is not None:
+                        if t - t_last > 1 / 100:
+                            print(t - t_last)
+                            pass
+                    t_last = t
+                else:
+                    break
         time.sleep(0.001)
     pass

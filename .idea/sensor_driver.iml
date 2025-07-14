@@ -19,7 +19,7 @@
       <excludeFolder url="file://$MODULE_DIR$/data_processing/data_viewer_OBSOLETE" />
       <excludeFolder url="file://$MODULE_DIR$/interfaces/multiple_zones/dumping" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.10 (2)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="sensor_driver_gui" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

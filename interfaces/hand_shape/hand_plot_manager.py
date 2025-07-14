@@ -18,7 +18,7 @@ legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
 STANDARD_PEN = pyqtgraph.mkPen('k')
 from config import config, save_config, get_config_mapping
 
-DISP_THRE = 0.08
+DISP_THRE = 0.001
 
 MINIMUM_Y_LIM = 0
 MAXIMUM_Y_LIM = 5
@@ -112,7 +112,8 @@ class HandPlotManager:
         self.resize_transform = []  # 包括了缩放的比例和偏移量
         # 计算用
         self.finger_feature_extractors = {int(k):
-                                              FingerFeatureExtractor(10, 4, 0.995, 10., 1.0)
+                                              FingerFeatureExtractor(0.00, 1.0,
+                                                                     0.995, 100., 1.0)
                                           for k in config_mapping['range_mapping'].keys()}
 
     def clear(self):
@@ -212,7 +213,7 @@ class HandPlotManager:
                 data = filter.filter(data)
             data = (data - y_lim[0]) / (y_lim[1] - y_lim[0])
             data = Interpolation(2, 1.0, data.shape).smooth(data * rect[3])
-            data = np.clip((data - DISP_THRE) * 5.0, 0., 1.)
+            data = np.clip(data * 10.0, 0., 1.)
             img_original = Image.fromarray((self.cmap.map(data.T, mode=float) * 255.).astype(np.uint8),
                                            mode='RGBA')
             img_scaled = img_original.resize((int(new_shape[0] * self.resize_transform[0]),
@@ -232,20 +233,20 @@ class HandPlotManager:
                 offset_x = self.arrow_offset[str(idx)][0] * self.resize_transform[0]
                 offset_y = self.arrow_offset[str(idx)][1] * self.resize_transform[1]
                 if self.region_x_diff[idx] and self.region_y_diff[idx]:
-                    x_diff = self.region_x_diff[idx][-1] * self.resize_transform[0] * 0.5
-                    y_diff = self.region_y_diff[idx][-1] * self.resize_transform[1] * 0.5
+                    x_diff = self.region_x_diff[idx][-1] * self.resize_transform[0]
+                    y_diff = self.region_y_diff[idx][-1] * self.resize_transform[1]
                     arrow_length = np.sqrt(x_diff ** 2 + y_diff ** 2)
                     arrow_angle = np.arctan2(y_diff, x_diff)
                     arrow_end_x = center[0] * self.resize_transform[0] + offset_x + arrow_length * np.cos(arrow_angle) + self.resize_transform[2]
                     arrow_end_y = center[1] * self.resize_transform[1] + offset_y + arrow_length * np.sin(arrow_angle) + self.resize_transform[3]
 
                     draw = ImageDraw.Draw(self.processing_image)
-                    draw.line([(center[0] * self.resize_transform[0] + offset_x + self.resize_transform[2],
-                                center[1] * self.resize_transform[1] + offset_y + self.resize_transform[3]),
-                               (arrow_end_x,
-                                arrow_end_y)],
-                              fill=(255, 0, 0, 255), width=int(1 * (self.resize_transform[0] + self.resize_transform[1]) + 1))
                     if arrow_length > 2:
+                        draw.line([(center[0] * self.resize_transform[0] + offset_x + self.resize_transform[2],
+                                    center[1] * self.resize_transform[1] + offset_y + self.resize_transform[3]),
+                                   (arrow_end_x,
+                                    arrow_end_y)],
+                                  fill=(255, 0, 0, 255), width=int(1 * (self.resize_transform[0] + self.resize_transform[1]) + 1))
                         arrow_size = int(3 * (self.resize_transform[0] + self.resize_transform[1]) + 1)
                         draw.polygon([(arrow_end_x, arrow_end_y),
                                       (arrow_end_x - arrow_size * np.cos(arrow_angle - np.pi / 6),
@@ -292,21 +293,18 @@ class HandPlotManager:
             self.lock.acquire()
             self.reset_image()
             for idx, data in data_fingers.items():
-
-                # data[2, 2] = 0
-                # data[4, :] = 0
-                # data[3, 2] = np.mean(data[2:4, 1:4] * 6 / 5)
-                # data[4, 2] = np.mean(data[4:6, 1:4] * 6 / 5)
+                data = np.maximum(data - DISP_THRE, 0.)
 
                 self.proj_funcs[idx](data)
                 # 0304前旧版本
                 # max_value = np.max(data)
                 # max_value = np.log(np.maximum(max_value, 1e-6)) / np.log(10.)
                 # 新的
-                summed_value = np.sum(np.maximum(data - DISP_THRE, 0.))
-                max_value = self.finger_feature_extractors[idx](data)['contact_strength']
-                x_diff = self.finger_feature_extractors[idx](data)['center_x_diff']
-                y_diff = self.finger_feature_extractors[idx](data)['center_y_diff']
+                summed_value = np.sum(data)
+                extracted = self.finger_feature_extractors[idx](data)
+                max_value = extracted['contact_strength']
+                x_diff = extracted['center_x_diff']
+                y_diff = extracted['center_y_diff']
                 self.summed_value[idx].append(summed_value)
                 self.region_max[idx].append(max_value)
                 self.region_x_diff[idx].append(x_diff)
