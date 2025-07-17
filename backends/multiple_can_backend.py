@@ -9,7 +9,7 @@ import numpy as np
 from backends.decoding import Decoder
 import json
 
-config_can = json.load(open(os.path.join(os.path.dirname(__file__), 'config_can.json'), 'rt'))
+config_can = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_can.json'), 'rt'))
 device_index = int(config_can['device_index'])
 channel_index = int(config_can['channel_index'])
 baud_rate = int(config_can['baud_rate'])
@@ -190,8 +190,8 @@ class CanDevice:
 if __name__ == '__main__':
     # 简单的调用测试
     import json
-    config_array_24_16 = json.load(open('config_array_24_16.json', 'rt'))
-    config_array_16 = json.load(open('config_array_16.json', 'rt'))
+    config_array_24_16 = json.load(open('../config_files/config_array_24_16.json', 'rt'))
+    config_array_16 = json.load(open('../config_files/config_array_16.json', 'rt'))
     indices = [0, 1, 2]
     sb = CanBackend({0: config_array_24_16, 1: config_array_16, 2: config_array_16})
     sb.start(None)  # 设备区分还没做

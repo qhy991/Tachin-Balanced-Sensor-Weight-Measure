@@ -18,7 +18,7 @@ from usb.core import USBError
 import sys
 import traceback
 import numpy as np
-from data_processing.data_handler import DataHandler
+from data_processing.experimental.data_handler_for_labeling import DataHandler
 from data_processing.preprocessing import Filter, RCFilterHP, RCFilter, ExtensionFilter, MedianFilter, OverallFocusFilter
 # from data_processing.experimental_preprocessing import StatisticalRevisionForEach
 from config import config, save_config, get_config_mapping
@@ -44,6 +44,8 @@ RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../r
 
 def log(v):
     return np.log(np.maximum(v, 1e-6)) / np.log(10)
+
+
 
 
 class Window(QtWidgets.QWidget, Ui_Form):
@@ -103,8 +105,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 标定状态
         self.scaling = log
         self.__set_using_calibration(False)
+
+        self.label_properties = self.__init_label_properties()
         if 'seat' in mode:
-            self.data_handler = DataHandler(SensorDriver, max_len=64)
+            self.data_handler = DataHandler(SensorDriver, max_len=4, extra_labels=self.label_properties.keys())
         else:
             raise NotImplementedError()
         self.filters_for_each = None
@@ -117,6 +121,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.scheduled_set_zero = False
         self.__set_calibrator(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                            '../../calibrate_files/calibration_log.clb'))
+        # 插值用
 
     def catch_exceptions(self, ty, value, tb):
         # 错误重定向为弹出对话框
@@ -131,7 +136,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 这里经常改
         if self._using_calibration:
             calibrated_range = self.data_handler.calibration_adaptor.range()
-            return [calibrated_range[0] * 0.0, calibrated_range[1] * 0.5]
+            return [calibrated_range[0] * 0.0, calibrated_range[1] * 1.0]
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
@@ -165,6 +170,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         set_logo(self)
         self.initialize_images()
         self.initialize_buttons()
+        self.initialize_labels()
         self.initialize_others()
         self.set_enable_state()
         self.__apply_y_lim()
@@ -307,7 +313,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         pass
 
     def __set_interpolate_and_blur(self):
-        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=0.5)
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=0.)
 
     def __set_calibrator(self, path=None):
         if path is None:
@@ -331,11 +337,56 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.__set_interpolate_and_blur()
         self.set_enable_state()
         self.button_set_zero.clicked.connect(self.data_handler.set_zero)
+        self.button_abandon_zero.clicked.connect(self.data_handler.abandon_zero)
         self.button_save_to.clicked.connect(self.__trigger_save_button)
 
         # 标定功能
         # self.button_load_calibration.clicked.connect(lambda: self.__set_calibrator(path=None))
         # self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
+
+    def __init_label_properties(self):
+        label_properties = {}
+        label_properties.update({'number': (self.line_number, ('int', 0, None))})
+        label_properties.update({'gender': (self.combo_gender, {0: '男', 1: '女', 2: '其他'})})
+        label_properties.update({'height': (self.line_height, ('int', 30, 299))})
+        label_properties.update({'weight': (self.line_weight, ('int', 5, 499))})
+        label_properties.update({'posture': (self.line_posture, ('int', None, None))})
+        ZeroGravityFoldSt_DICT = {
+            0: 'UNFOLDSTS',
+            1: 'RETRACTSTS',
+            2: 'UNFOLDING',
+            3: 'RETRACTING',
+            4: 'PAUSESTS',
+            5: 'UNFOLDMemorySTS',
+            6: 'RETRACTMemorySTS',
+            7: 'SEMI_UNFOLDSTS',
+            8: 'SEMI_UnfoldMemorySTS',
+            15: 'INVALID'
+        }
+        label_properties.update({'ZeroGravityFoldSt': (self.combo_ZeroGravityFoldSt, ZeroGravityFoldSt_DICT
+                                                       )})
+        label_properties.update({'HeadrestHeightMotPosn': (self.line_HeadrestHeightMotPosn, ('int', 0, 63))})
+        label_properties.update({'HdrestSldPosn': (self.line_HdrestSldPosn, ('int', 0, 63))})
+        label_properties.update({'BackrestMotPosn': (self.line_BackrestMotPosn, ('int', 0, 63))})
+        label_properties.update({'CushTiltMotPosn': (self.line_CushTiltMotPosn, ('int', 0, 63))})
+        lumber_DICT = {
+            0: 'No request',
+            1: 'Low',
+            2: 'High',
+            3: 'Reset'
+        }
+        label_properties.update({'lumber_left_wing_status': (self.combo_lumber_left_wing_status, lumber_DICT)})
+        label_properties.update({'lumber_right_wing_status': (self.combo_lumber_right_wing_status, lumber_DICT)})
+        label_properties.update({'lumber_above_status': (self.line_lumber_above_status, ('int', 0, 63))})
+        label_properties.update({'lumber_below_status': (self.line_lumber_below_status, ('int', 0, 63))})
+        label_properties.update({'LegSupportMotPosn': (self.line_LegSupportMotPosn, ('int', 0, 63))})
+        label_properties.update({'LegExtnMotPosn': (self.line_LegExtnMotPosn, ('int', 0, 63))})
+        return label_properties
+
+    def initialize_labels(self):
+        for label_property in self.label_properties:
+            pass
+
 
     def __trigger_save_button(self):
         if self.data_handler.output_file:
@@ -367,12 +418,13 @@ class Window(QtWidgets.QWidget, Ui_Form):
     def trigger(self):
         try:
             self.data_handler.trigger()
-            if self.scheduled_set_zero:
+            if False:
                 success = self.data_handler.set_zero()
                 if success:
                     self.scheduled_set_zero = False
-            if not self.scheduled_set_zero:
+            if True:
                 if self.data_handler.value:
+                    t_fig_data = self.data_handler.time[-1]
                     for idx_plot, plot in self.plots.items():
                         fig_data = self.data_handler.value[-1][idx_plot]
                         if self.filters_for_each is not None:
@@ -396,6 +448,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.stop()
         super(Window, self).closeEvent(a0)
         sys.exit()
+
 
 
 def start(mode='standard'):

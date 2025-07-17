@@ -20,10 +20,11 @@ class SeatSensorDriver(AbstractSensorDriver):
     def __init__(self, time_tolerance=0.5):
         super(SeatSensorDriver, self).__init__()
 
-        config_array_24_16 = json.load(open(os.path.join(os.path.dirname(__file__), 'config_array_24_16.json'), 'rt'))
-        config_array_16 = json.load(open(os.path.join(os.path.dirname(__file__),'config_array_16.json'), 'rt'))
+        config_array_seat = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_24_16_seat.json'), 'rt'))
+        config_array_back = json.load(open(os.path.join(os.path.dirname(__file__),'../config_files/config_array_16_back.json'), 'rt'))
+        config_array_head = json.load(open(os.path.join(os.path.dirname(__file__),'../config_files/config_array_16_head.json'), 'rt'))
         self.indices = [0, 1, 2]
-        sb = CanBackend({0: config_array_24_16, 1: config_array_16, 2: config_array_16})
+        sb = CanBackend({0: config_array_seat, 1: config_array_head, 2: config_array_back})
         self.time_tolerance = time_tolerance
         self.sensor_backend = sb
 

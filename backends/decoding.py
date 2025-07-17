@@ -23,6 +23,7 @@ class Decoder:
         self.bytes_per_point = config_array.get('bytes_per_point', 2)  # 默认
         assert self.bytes_per_point in [1, 2]
         self.buffer_length = config_array.get('buffer_length', 64)  # 默认
+        self.extra_swap = config_array.get('extra_swap', [])
         self.sensor_shape = (self.row_array.__len__(), self.column_array.__len__())
         self.package_size = HEAD_LENGTH + CRC_LENGTH + self.sensor_shape[1] * self.bytes_per_point
         #
@@ -124,6 +125,18 @@ class Decoder:
     def __finish_frame(self):
         for bit in range(self.bytes_per_point):
             self.finished_frame[bit][...] = self.preparing_frame[bit][...]
+        # 交换
+        for extra_swap_pair in self.extra_swap:
+            (row_0, col_0), (row_1, col_1) = extra_swap_pair
+            print(row_0, col_0, row_1, col_1)
+            for bit in range(self.bytes_per_point):
+                pass
+                # 交换
+                self.finished_frame[bit][row_0 * self.sensor_shape[1] + col_0], \
+                    self.finished_frame[bit][row_1 * self.sensor_shape[1] + col_1] = \
+                    self.finished_frame[bit][row_1 * self.sensor_shape[1] + col_1], \
+                    self.finished_frame[bit][row_0 * self.sensor_shape[1] + col_0]
+        #
         time_now = time.time()
         if self.last_finish_time > 0:
             self.last_interval = time_now - self.last_finish_time
@@ -133,8 +146,6 @@ class Decoder:
                         * (2 ** (8 * (self.bytes_per_point - bit - 1)))
                         for bit, _ in enumerate(self.finished_frame)]).reshape(self.sensor_shape)
             # 引入底层滤波器
-            if self.buffer.__len__() == self.buffer.maxlen:
-                print("缓冲区满")
             self.buffer.append((data, self.last_finish_time))
 
     def __abort_frame(self):

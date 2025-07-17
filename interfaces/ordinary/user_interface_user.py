@@ -9,7 +9,7 @@ from interfaces.ordinary.layout.layout_user import Ui_MainWindow
 from usb.core import USBError
 import sys
 import numpy as np
-from data_processing.data_handler_experimental import DataHandler
+from data_processing.data_handler import DataHandler
 #
 from interfaces.public.utils import (set_logo,
                                      config, save_config, catch_exceptions)
@@ -188,13 +188,14 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def trigger(self):
         try:
+            self.data_handler.trigger()
             self.plotter.trigger()
             self.console_out.setText(self.get_console_str())
         except USBError:
             self.stop()
             QtWidgets.qApp.quit()
         except Exception as e:
-            self.stop()
+            # self.stop()
             raise e
 
     def trigger_null(self):

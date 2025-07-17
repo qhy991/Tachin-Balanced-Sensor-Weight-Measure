@@ -15,16 +15,16 @@ from config import config
 import threading
 from data_processing.calibrate_adaptor import CalibrateAdaptor
 from data_processing.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
-
+from data_processing.convert_data import extract_data, dataframe_to_numpy
 VALUE_DTYPE = float
 
 
 class DataHandler:
 
-    ZERO_LEN_REQUIRE = 32
+    ZERO_LEN_REQUIRE = 4
     MAX_IN = 16
 
-    def __init__(self, template_sensor_driver, max_len=64, curve_on=True):
+    def __init__(self, template_sensor_driver, max_len=64, curve_on=True, extra_labels=None):
         self.max_len = max_len
         self.driver = template_sensor_driver()  # 传感器驱动
         # 滤波器
@@ -36,12 +36,15 @@ class DataHandler:
         self.preset_filters = preprocessing.build_preset_filters(template_sensor_driver)  # 下拉菜单里可设置的滤波器
         self.interpolation = Interpolation(1, 0., template_sensor_driver.SENSOR_SHAPE)  # 插值。可被设置
         self.curve_on = curve_on
+        if extra_labels is None:
+            extra_labels = []
+        self.extra_labels = extra_labels
         #
         # region_count为0表示为单片；否则为分片
-        if template_sensor_driver.__name__ == 'TactileDriverWithPreprocessing':
-            self.region_count = template_sensor_driver.range_mapping.__len__()
-        else:
-            self.region_count = 0
+        try:
+            self.region_indices = template_sensor_driver.range_mapping.keys()
+        except AttributeError:
+            self.region_indices = []
         # 分片模式下，数据的处理方式会有区别
         self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 标定器
         self.using_calibration = False
@@ -62,6 +65,8 @@ class DataHandler:
         self.tracing_points = []  # 当前的追踪点。Experimental修改：多个追踪点
         self.lock = threading.Lock()
         self.zero_set = False
+        #
+        self.current_label_values = [-1 for _ in self.extra_labels]
         # 保存
         self.output_file = None
         self.cursor = None
@@ -71,6 +76,7 @@ class DataHandler:
         #
         self.dump_interval = config.get("dump_interval", 10.) * 0.001
         self.next_dump = 0.
+
 
     # 保存功能
     def link_output_file(self, path):
@@ -83,52 +89,47 @@ class DataHandler:
             self.output_file = sqlite3.connect(path)
             self.path_db = path
             self.cursor = self.output_file.cursor()
-            if self.region_count == 0:  # 无分区
-                command = ('create table data (time float, time_after_begin float, '
-                          + ', '.join([f'data_row_{i} text'
-                                      for i in range(self.driver.SENSOR_SHAPE[0])
-                                      ]) + ','
-                          + ', '.join(['config_zero_set int', 'config_using_calibration int',
-                                       'feature_summed int', 'feature_maximum int'])
-                           + ')')
+            if not self.region_indices:  # 无分区
+                raise NotImplementedError()
             else:
                 # SplitDataDict 模式
                 command = ('create table data (time float, time_after_begin float, '
                           + ', '.join([f'data_region_{i}_row_{j} text'
-                                       for i in range(self.region_count)
-                                       for j in range(self.driver.SENSOR_SHAPE[0])
+                                       for i in self.region_indices
+                                       for j in range(self.driver.get_zeros(i).shape[0])
                                        ]) + ','
-                            + ', '.join(['zero_set int', 'using_calibration int',
+                            + ', '.join(['config_zero_set int', 'config_using_calibration int',
                                          'feature_summed int', 'feature_maximum int'])
+                 + ', '.join([f'label_{extra_label}' + ' int' for extra_label in self.extra_labels])
                            + ')')
             self.cursor.execute(command)
 
         except PermissionError as e:
             raise Exception('文件无法写入。可能正被占用')
         except Exception as e:
-            raise Exception('文件无法写入')
+            raise e
 
     def write_to_file(self, time_now, time_after_begin, data, summed, maximum):
         #
+        extra_label_values = self.current_label_values
+        assert extra_label_values.__len__() == self.extra_labels.__len__()
         if self.output_file is not None:
             if time_after_begin - self.next_dump > 2 * self.dump_interval:
                 self.next_dump = 0.
             if self.next_dump == 0.:
                 self.next_dump = time_after_begin
             if time_after_begin >= self.next_dump:
-                if self.region_count == 0:
-                    command = (f'insert into data values ({time_now}, {time_after_begin}, '
-                               + ', '.join(['\"' + json.dumps(_.tolist()) + '\"' for _ in data]) + ','
-                               + ', '.join([str(_) for _ in [int(self.zero_set), int(self.using_calibration),
-                                                             summed, maximum]]) +
-                               ')')
+                if not self.region_indices:
+                    raise NotImplementedError()
                 else:
                     # SplitDataDict 模式
                     data_list = sum([['\"' + json.dumps(_.tolist()) + '\"' for _ in data[k]] for k in data.keys()], [])
                     command = (f'insert into data values ({time_now}, {time_after_begin}, '
                                + ', '.join(data_list) + ','
                                + ', '.join([str(_) for _ in [int(self.zero_set), int(self.using_calibration)]]) + ','
-                               + ', '.join([str(_) for _ in [summed, maximum]]) + ')')
+                               + ', '.join([str(_) for _ in [summed, maximum]])
+                                 + ', ' + ', '.join([str(_) for _ in extra_label_values])
+                               + ')')
                 self.cursor.execute(command)
                 self.commit_file()
                 self.next_dump = self.next_dump + self.dump_interval
@@ -183,12 +184,16 @@ class DataHandler:
         flag = self.driver.disconnect()
         return flag
 
+    def get_data(self):
+        data, time_now = self.driver.get()
+        return data, time_now
+
     def trigger(self):
         # 循环触发
         count_in = self.MAX_IN
         while count_in:
             count_in -= 1
-            data, time_now = self.driver.get()
+            data, time_now = self.get_data()
             if data is not None:
                 # 原始数据
                 # 滤波数据
@@ -250,6 +255,7 @@ class DataHandler:
             self.zero_set = True
             self.zero = np.mean(np.maximum(np.asarray(self.value_before_zero)[-self.ZERO_LEN_REQUIRE:, ...], 0), axis=0)
             self.clear()
+            print('置零成功')
             return True
         else:
             # print('数据不足，无法置零')
@@ -308,6 +314,10 @@ class DataHandler:
         self.abandon_zero()
         self.clear()
         self.using_calibration = False
+
+    def set_label_values(self, label_values):
+        assert label_values.__len__() == self.extra_labels.__len__()
+        self.current_label_values = label_values
 
 if __name__ == '__main__':
     from backends.usb_driver import LargeUsbSensorDriver

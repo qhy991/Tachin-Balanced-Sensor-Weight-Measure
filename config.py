@@ -1,7 +1,7 @@
 import json
 import os
 
-config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), './config.json')
+config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), './config_files/config.json')
 
 config = json.load(
     open(config_path, 'rt'))
@@ -11,7 +11,7 @@ def get_config_mapping(suffix):
     try:
         config_mapping = json.load(
             open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              f'interfaces/config_mapping/config_mapping_{suffix}.json'), 'rt',
+                              f'config_files/config_mapping_{suffix}.json'), 'rt',
                  encoding='utf-8'),
         )
         #

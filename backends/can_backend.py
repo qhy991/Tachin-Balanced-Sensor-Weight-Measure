@@ -181,7 +181,7 @@ class CanDevice:
 if __name__ == '__main__':
     # 简单的调用测试
     import json
-    config_array = json.load(open('config_array_32.json', 'rt'))
+    config_array = json.load(open('../config_files/config_array_32.json', 'rt'))
     sb = CanBackend(config_array)
     sb.start(None)  # 设备区分还没做
     print('start')

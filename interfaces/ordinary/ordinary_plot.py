@@ -109,7 +109,6 @@ class OrdinaryPlot:
             self.__apply_y_lim()
 
     def trigger(self):
-        self.data_handler.trigger()
         with self.data_handler.lock:
             if self.data_handler.value:
                 self.plot.setImage(apply_swap(self.scaling(np.array(self.data_handler.value[-1].T))),

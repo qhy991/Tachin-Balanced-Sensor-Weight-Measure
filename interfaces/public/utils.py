@@ -17,7 +17,7 @@ LINE_STYLE = {'pen': pyqtgraph.mkPen('k'), 'symbol': 'o', 'symbolBrush': 'k', 's
 SCATTER_STYLE = {'pen': pyqtgraph.mkPen('k', width=2), 'symbol': 's', 'brush': None, 'symbolSize': 20}
 STANDARD_PEN = pyqtgraph.mkPen('k')
 
-RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../resources')
+RESOURCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../resources')
 
 
 def catch_exceptions(window, ty, value, tb):
@@ -102,3 +102,7 @@ def apply_swap(data):
         return data.T
     else:
         return data
+
+
+
+

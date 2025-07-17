@@ -12,19 +12,16 @@ import json
 import sqlite3
 from data_processing.convert_data import convert_db_to_csv
 from config import config
-
 import threading
-
-# 引入calibrate_adaptor
 from data_processing.calibrate_adaptor import CalibrateAdaptor
 from data_processing.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
-
+from data_processing.convert_data import extract_data, dataframe_to_numpy
 VALUE_DTYPE = float
 
 
 class DataHandler:
 
-    ZERO_LEN_REQUIRE = 32
+    ZERO_LEN_REQUIRE = 4
     MAX_IN = 16
 
     def __init__(self, template_sensor_driver, max_len=64, curve_on=True):
@@ -60,9 +57,9 @@ class DataHandler:
         self.value_zero = np.zeros(template_sensor_driver.SENSOR_SHAPE, dtype=template_sensor_driver.DATA_TYPE)
         self.maximum = deque(maxlen=self.max_len)  # 峰值
         self.summed = deque(maxlen=self.max_len)  # 总值
-        self.tracing = deque(maxlen=self.max_len)  # 追踪点
+        self.tracings = deque(maxlen=self.max_len)  # 追踪点。Experimental修改：多个追踪点
         self.t_tracing = deque(maxlen=self.max_len)  # 追踪点的时间。由于更新追踪点时会清空，故单独记录
-        self.tracing_point = (0, 0)  # 当前的追踪点
+        self.tracing_points = []  # 当前的追踪点。Experimental修改：多个追踪点
         self.lock = threading.Lock()
         self.zero_set = False
         # 保存
@@ -74,6 +71,7 @@ class DataHandler:
         #
         self.dump_interval = config.get("dump_interval", 10.) * 0.001
         self.next_dump = 0.
+
 
     # 保存功能
     def link_output_file(self, path):
@@ -92,7 +90,7 @@ class DataHandler:
                                       for i in range(self.driver.SENSOR_SHAPE[0])
                                       ]) + ','
                           + ', '.join(['config_zero_set int', 'config_using_calibration int',
-                                       'feature_summed int', 'feature_maximum int', 'feature_tracing int'])
+                                       'feature_summed int', 'feature_maximum int'])
                            + ')')
             else:
                 # SplitDataDict 模式
@@ -101,8 +99,8 @@ class DataHandler:
                                        for i in self.region_indices
                                        for j in range(self.driver.get_zeros(i).shape[0])
                                        ]) + ','
-                            + ', '.join(['zero_set int', 'using_calibration int',
-                                         'summed int', 'maximum int', 'tracing int'])
+                            + ', '.join(['config_zero_set int', 'config_using_calibration int',
+                                         'feature_summed int', 'feature_maximum int'])
                            + ')')
             self.cursor.execute(command)
 
@@ -111,7 +109,7 @@ class DataHandler:
         except Exception as e:
             raise e
 
-    def write_to_file(self, time_now, time_after_begin, data, summed, maximum, tracing):
+    def write_to_file(self, time_now, time_after_begin, data, summed, maximum):
         #
         if self.output_file is not None:
             if time_after_begin - self.next_dump > 2 * self.dump_interval:
@@ -123,7 +121,7 @@ class DataHandler:
                     command = (f'insert into data values ({time_now}, {time_after_begin}, '
                                + ', '.join(['\"' + json.dumps(_.tolist()) + '\"' for _ in data]) + ','
                                + ', '.join([str(_) for _ in [int(self.zero_set), int(self.using_calibration),
-                                                             summed, maximum, tracing]]) +
+                                                             summed, maximum]]) +
                                ')')
                 else:
                     # SplitDataDict 模式
@@ -131,7 +129,7 @@ class DataHandler:
                     command = (f'insert into data values ({time_now}, {time_after_begin}, '
                                + ', '.join(data_list) + ','
                                + ', '.join([str(_) for _ in [int(self.zero_set), int(self.using_calibration)]]) + ','
-                               + ', '.join([str(_) for _ in [summed, maximum, tracing]]) + ')')
+                               + ', '.join([str(_) for _ in [summed, maximum]]) + ')')
                 self.cursor.execute(command)
                 self.commit_file()
                 self.next_dump = self.next_dump + self.dump_interval
@@ -166,7 +164,7 @@ class DataHandler:
         self.time_ms.clear()
         self.maximum.clear()
         self.summed.clear()
-        self.tracing.clear()
+        self.tracings.clear()
         self.t_tracing.clear()
         self.lock.release()
 
@@ -186,12 +184,16 @@ class DataHandler:
         flag = self.driver.disconnect()
         return flag
 
+    def get_data(self):
+        data, time_now = self.driver.get()
+        return data, time_now
+
     def trigger(self):
         # 循环触发
         count_in = self.MAX_IN
         while count_in:
             count_in -= 1
-            data, time_now = self.driver.get()
+            data, time_now = self.get_data()
             if data is not None:
                 # 原始数据
                 # 滤波数据
@@ -216,11 +218,14 @@ class DataHandler:
                 # 导出
                 summed = np.sum(value)
                 maximum = np.max(value)
-                tracing = np.mean(np.asarray(value)[
-                                                   self.tracing_point[0] * self.interpolation.interp
-                                                   : (self.tracing_point[0] + 1) * self.interpolation.interp,
-                                                   self.tracing_point[1] * self.interpolation.interp
-                                                   : (self.tracing_point[1] + 1) * self.interpolation.interp])
+                tracings = []
+                for tracing_point in self.tracing_points:
+                    tracing = np.mean(np.asarray(value)[
+                                                       tracing_point[0] * self.interpolation.interp
+                                                       : (tracing_point[0] + 1) * self.interpolation.interp,
+                                                       tracing_point[1] * self.interpolation.interp
+                                                       : (tracing_point[1] + 1) * self.interpolation.interp])
+                    tracings.append(tracing)
 
                 self.lock.acquire()
                 self.data.append(data)
@@ -233,11 +238,11 @@ class DataHandler:
                     self.time_ms.append(np.array([(time_after_begin * 1e3) % 10000], dtype='>i2'))  # ms
                     self.maximum.append(maximum)
                     self.summed.append(summed)
-                    self.tracing.append(tracing)
+                    self.tracings.append(tracings)
                 self.lock.release()
                 #
                 try:
-                    self.write_to_file(time_now, time_after_begin, data, int(summed), int(maximum), int(tracing))
+                    self.write_to_file(time_now, time_after_begin, data, summed, maximum)
                 except TypeError:
                     warnings.warn('未完成保存模块')
             else:
@@ -250,6 +255,7 @@ class DataHandler:
             self.zero_set = True
             self.zero = np.mean(np.maximum(np.asarray(self.value_before_zero)[-self.ZERO_LEN_REQUIRE:, ...], 0), axis=0)
             self.clear()
+            print('置零成功')
             return True
         else:
             # print('数据不足，无法置零')
@@ -273,9 +279,14 @@ class DataHandler:
     def set_tracing(self, i, j):
         # 鼠标选点时，设置追踪点
         if 0 <= i < self.driver.SENSOR_SHAPE[0] and 0 <= j < self.driver.SENSOR_SHAPE[1]:
-            self.tracing_point = (i, j)
+            if (i, j) in self.tracing_points:
+                # 如果点已存在，则删除
+                self.tracing_points.remove((i, j))
+            else:
+                self.tracing_points.append((i, j))
             self.t_tracing.clear()
-            self.tracing.clear()
+            self.tracings.clear()
+        return self.tracing_points.__len__()
 
     def set_interpolation_and_blur(self, interpolate, blur):
         assert interpolate == int(interpolate)

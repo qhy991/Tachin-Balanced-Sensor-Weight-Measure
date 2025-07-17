@@ -43,20 +43,7 @@ def extract_data(path):
         print('文件不存在')
         return None
 
-def convert_db_to_csv(path):
-    data_by_col = extract_data(path)
-    if data_by_col is not None:
-        save_path = path[:-3] + '.csv'
-        data_by_col.to_csv(save_path, index=False)
-        print('导出完成')
-        try:
-            os.startfile(save_path)
-        except Exception as e:
-            print(e)
-    else:
-        print('文件不存在')
-
-def dataframe_to_numpy(data_by_col):
+def dataframe_to_numpy(data_by_col, with_time=False):
     """
     将DataFrame转换为numpy数组
     :param data_by_col: DataFrame
@@ -69,9 +56,29 @@ def dataframe_to_numpy(data_by_col):
         row_count = len(pd.unique([col.split('_')[2] for col in data_row_cols]))
         col_count = len(pd.unique([col.split('_')[4] for col in data_row_cols]))
         data_array = data_by_col[data_row_cols].values.reshape((-1, row_count, col_count))
-        return data_array
+        if with_time:
+            time_data = data_by_col[['time_after_begin']].values.ravel()
+            return data_array, time_data
+        else:
+            return data_array
     else:
-        return None
+        if with_time:
+            return None, None
+        else:
+            return None
+
+def convert_db_to_csv(path):
+    data_by_col = extract_data(path)
+    if data_by_col is not None:
+        save_path = path[:-3] + '.csv'
+        data_by_col.to_csv(save_path, index=False)
+        print('导出完成')
+        try:
+            os.startfile(save_path)
+        except Exception as e:
+            print(e)
+    else:
+        print('文件不存在')
 
 
 class ReplayDataSource:

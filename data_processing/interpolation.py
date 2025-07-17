@@ -1,6 +1,8 @@
 
 from scipy.ndimage import median_filter, gaussian_filter, zoom
+from scipy.interpolate import interp1d
 import numpy as np
+import time
 
 
 class Interpolation:
@@ -32,6 +34,7 @@ class Interpolation:
         zoom_factors = self.interp
         zoomed_data = zoom(data, zoom_factors, order=1)
         return zoomed_data
+
 
 if __name__ == '__main__':
     a = np.array([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]])
