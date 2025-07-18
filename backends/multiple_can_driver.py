@@ -20,11 +20,11 @@ class SeatSensorDriver(AbstractSensorDriver):
     def __init__(self, time_tolerance=0.5):
         super(SeatSensorDriver, self).__init__()
 
-        config_array_seat = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_24_16_seat.json'), 'rt'))
-        config_array_back = json.load(open(os.path.join(os.path.dirname(__file__),'../config_files/config_array_16_back.json'), 'rt'))
-        config_array_head = json.load(open(os.path.join(os.path.dirname(__file__),'../config_files/config_array_16_head.json'), 'rt'))
+        config_array_seat = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_seat.json'), 'rt'))
+        config_array_back = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_back.json'), 'rt'))
+        config_array_head = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_head.json'), 'rt'))
         self.indices = [0, 1, 2]
-        sb = CanBackend({0: config_array_seat, 1: config_array_head, 2: config_array_back})
+        sb = CanBackend({0: config_array_seat, 1: config_array_back, 2: config_array_head})
         self.time_tolerance = time_tolerance
         self.sensor_backend = sb
 
@@ -64,7 +64,7 @@ class SeatSensorDriver(AbstractSensorDriver):
                     if data is not None:
                         result_dict[index] = (data, t)
                         ts[index] = t
-                        print(f"跳过1条通道{index}的数据")
+                        # print(f"跳过1条通道{index}的数据")
                     else:
                         break
             if success_flag:

@@ -84,7 +84,7 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
             self.__set_enable_state()
 
     def __pre_initialize(self):
-        set_logo(self)
+        set_logo(self, True)
         self.__initialize_buttons()  # 初始化一般接口
         self.__set_enable_state()  # 各类开始/停止状态切换时调用
         self.com_port.setEnabled(True)  # 一旦成功开始，就再也不能修改

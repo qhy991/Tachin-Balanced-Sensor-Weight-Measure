@@ -301,7 +301,8 @@ class Window(QtWidgets.QWidget, Ui_Form):
             pass
         else:
             raise NotImplementedError()
-
+        for button in [self.button_capture_zero, self.button_capture_load]:
+            button.setEnabled(bool(self.data_handler.output_file))
 
     def __apply_swap(self, data):
         if config['xy_swap']:
@@ -346,10 +347,13 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def __init_label_properties(self):
         label_properties = {}
-        label_properties.update({'number': (self.line_number, ('int', 0, None))})
+        label_properties.update({'number': (self.line_number, ('int', None, None))})
         label_properties.update({'gender': (self.combo_gender, {0: '男', 1: '女', 2: '其他'})})
         label_properties.update({'height': (self.line_height, ('int', 30, 299))})
         label_properties.update({'weight': (self.line_weight, ('int', 5, 499))})
+        label_properties.update({'sit_height': (self.line_sit_height, ('int', 5, 499))})
+        label_properties.update({'leg_length': (self.line_leg_length, ('int', 5, 499))})
+        label_properties.update({'waist': (self.line_waist, ('int', 5, 499))})
         label_properties.update({'posture': (self.line_posture, ('int', None, None))})
         ZeroGravityFoldSt_DICT = {
             0: 'UNFOLDSTS',
@@ -365,10 +369,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
         }
         label_properties.update({'ZeroGravityFoldSt': (self.combo_ZeroGravityFoldSt, ZeroGravityFoldSt_DICT
                                                        )})
-        label_properties.update({'HeadrestHeightMotPosn': (self.line_HeadrestHeightMotPosn, ('int', 0, 63))})
-        label_properties.update({'HdrestSldPosn': (self.line_HdrestSldPosn, ('int', 0, 63))})
-        label_properties.update({'BackrestMotPosn': (self.line_BackrestMotPosn, ('int', 0, 63))})
-        label_properties.update({'CushTiltMotPosn': (self.line_CushTiltMotPosn, ('int', 0, 63))})
+        label_properties.update({'HeadrestHeightMotPosn': (self.line_HeadrestHeightMotPosn, ('int', 0, 64))})
+        label_properties.update({'HdrestSldPosn': (self.line_HdrestSldPosn, ('int', 0, 64))})
+        label_properties.update({'BackrestMotPosn': (self.line_BackrestMotPosn, ('int', 0, 64))})
+        label_properties.update({'CushTiltMotPosn': (self.line_CushTiltMotPosn, ('int', 0, 64))})
         lumber_DICT = {
             0: 'No request',
             1: 'Low',
@@ -377,16 +381,86 @@ class Window(QtWidgets.QWidget, Ui_Form):
         }
         label_properties.update({'lumber_left_wing_status': (self.combo_lumber_left_wing_status, lumber_DICT)})
         label_properties.update({'lumber_right_wing_status': (self.combo_lumber_right_wing_status, lumber_DICT)})
-        label_properties.update({'lumber_above_status': (self.line_lumber_above_status, ('int', 0, 63))})
-        label_properties.update({'lumber_below_status': (self.line_lumber_below_status, ('int', 0, 63))})
-        label_properties.update({'LegSupportMotPosn': (self.line_LegSupportMotPosn, ('int', 0, 63))})
-        label_properties.update({'LegExtnMotPosn': (self.line_LegExtnMotPosn, ('int', 0, 63))})
+        label_properties.update({'lumber_above_status': (self.line_lumber_above_status, ('int', 0, 64))})
+        label_properties.update({'lumber_below_status': (self.line_lumber_below_status, ('int', 0, 64))})
+        label_properties.update({'LegSupportMotPosn': (self.line_LegSupportMotPosn, ('int', 0, 64))})
+        label_properties.update({'LegExtnMotPosn': (self.line_LegExtnMotPosn, ('int', 0, 64))})
+        label_properties.update({'activated': ((self.button_capture_zero, self.button_capture_load), None)})
         return label_properties
 
     def initialize_labels(self):
-        for label_property in self.label_properties:
-            pass
+        def on_changed(capture=-1):
+            label_values = []
+            for label_property in self.label_properties.values():
+                widget = label_property[0]
+                if isinstance(widget, QtWidgets.QComboBox):
+                    # 选中项的value会被存储到data_handler.extra_labels中
+                    label_values.append(widget.currentData())
+                elif isinstance(widget, QtWidgets.QLineEdit):
+                    # 直接读取文本
+                    text = widget.text()
+                    label_values.append(int(text))
+                elif isinstance(widget, tuple):
+                    # 选中状态
+                    label_values.append(capture)
+                else:
+                    raise NotImplementedError()
+            self.data_handler.set_label_values(label_values)
+            # 然后，修改所有的显示值为self.data_handler.extra_labels中的值
+            for idx, label_property in enumerate(self.label_properties.values()):
+                widget = label_property[0]
+                if isinstance(widget, QtWidgets.QComboBox):
+                    # 设置当前选中项
+                    widget.setCurrentIndex(widget.findData(self.data_handler.current_label_values[idx]))
+                elif isinstance(widget, QtWidgets.QLineEdit):
+                    # 设置文本
+                    widget.setText(str(self.data_handler.current_label_values[idx]))
+                elif isinstance(widget, tuple):
+                    # 设置勾选状态
+                    pass
+                else:
+                    raise NotImplementedError()
 
+        def capture_zero():
+            on_changed(0)
+
+        def capture_load():
+            on_changed(1)
+
+        for label_property in self.label_properties.values():
+            widget = label_property[0]
+            if isinstance(widget, QtWidgets.QComboBox):
+                content_dict = label_property[1]
+                widget.clear()
+                for value, description in content_dict.items():
+                    # description是显示的内容
+                    # 当该条被选中时，对应的value会被存储到data_handler.extra_labels中
+                    widget.addItem(description, value)
+                # 设置选中第一个
+                if widget.count() > 0:
+                    widget.setCurrentIndex(0)
+                widget.currentIndexChanged.connect(on_changed)
+            elif isinstance(widget, QtWidgets.QLineEdit):
+                content_type = label_property[1][0]
+                lim_min = label_property[1][1]
+                lim_max = label_property[1][2]
+                # 配置QLineEdit检查器
+                if content_type == 'int':
+                    if lim_min is not None:
+                        widget.setValidator(QtGui.QIntValidator(lim_min, lim_max, self))
+                    else:
+                        widget.setValidator(QtGui.QIntValidator(self))
+                else:
+                    raise NotImplementedError()
+                widget.editingFinished.connect(on_changed)
+            elif isinstance(widget, tuple):
+                widget_0: QtWidgets.QPushButton = widget[0]
+                widget_1: QtWidgets.QPushButton = widget[1]
+                widget_0.clicked.connect(capture_zero)
+                widget_1.clicked.connect(capture_load)
+            else:
+                NotImplementedError()
+        on_changed()
 
     def __trigger_save_button(self):
         if self.data_handler.output_file:

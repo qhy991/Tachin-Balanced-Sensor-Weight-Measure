@@ -99,7 +99,7 @@ class DataHandler:
                                        for j in range(self.driver.get_zeros(i).shape[0])
                                        ]) + ','
                             + ', '.join(['config_zero_set int', 'config_using_calibration int',
-                                         'feature_summed int', 'feature_maximum int'])
+                                         'feature_summed int', 'feature_maximum int']) + ','
                  + ', '.join([f'label_{extra_label}' + ' int' for extra_label in self.extra_labels])
                            + ')')
             self.cursor.execute(command)
@@ -118,7 +118,7 @@ class DataHandler:
                 self.next_dump = 0.
             if self.next_dump == 0.:
                 self.next_dump = time_after_begin
-            if time_after_begin >= self.next_dump:
+            if time_after_begin >= self.next_dump and extra_label_values[-1] >= 0:
                 if not self.region_indices:
                     raise NotImplementedError()
                 else:
@@ -127,9 +127,11 @@ class DataHandler:
                     command = (f'insert into data values ({time_now}, {time_after_begin}, '
                                + ', '.join(data_list) + ','
                                + ', '.join([str(_) for _ in [int(self.zero_set), int(self.using_calibration)]]) + ','
-                               + ', '.join([str(_) for _ in [summed, maximum]])
-                                 + ', ' + ', '.join([str(_) for _ in extra_label_values])
+                               + ', '.join([str(_) for _ in [summed, maximum]]) + ', '
+                                 + ', '.join([str(_) for _ in extra_label_values])
                                + ')')
+                    self.current_label_values[-1] = -1  # 将快照开关重设为无效
+                    print("采集成功")
                 self.cursor.execute(command)
                 self.commit_file()
                 self.next_dump = self.next_dump + self.dump_interval
@@ -317,7 +319,9 @@ class DataHandler:
 
     def set_label_values(self, label_values):
         assert label_values.__len__() == self.extra_labels.__len__()
+        print("设置标签为：", label_values)
         self.current_label_values = label_values
+
 
 if __name__ == '__main__':
     from backends.usb_driver import LargeUsbSensorDriver

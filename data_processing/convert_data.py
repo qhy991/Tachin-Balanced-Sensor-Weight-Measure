@@ -21,6 +21,10 @@ def extract_data(path):
             if c.startswith('data_row_'):
                 i = int(c.split('_')[-1])
                 data_row = np.vectorize(json.loads, otypes=[object])(data[c].values)
+                print(data_row.shape)
+                if not bool(data_row):
+                    print('文件为空')
+                    return None
                 data_row = np.array([_ for _ in data_row])
                 to_be_concatenated.append(pd.DataFrame(data_row,
                                                        columns=[f'data_row_{i}_col_{j}'
@@ -33,7 +37,7 @@ def extract_data(path):
                 to_be_concatenated.append(pd.DataFrame(data_row,
                                                          columns=[f'data_region_{j}_row_{i}_col_{k}'
                                                                   for k in range(data_row.shape[1])]))
-            elif c.startswith('config_') or c.startswith('feature_'):
+            elif c.startswith('config_') or c.startswith('feature_') or c.startswith('label_'):
                 to_be_concatenated.append(pd.DataFrame(data[c].values.reshape((-1, 1)), columns=[c]))
                 pass
         data_by_col = pd.concat(to_be_concatenated, axis=1)

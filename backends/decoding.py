@@ -128,7 +128,6 @@ class Decoder:
         # 交换
         for extra_swap_pair in self.extra_swap:
             (row_0, col_0), (row_1, col_1) = extra_swap_pair
-            print(row_0, col_0, row_1, col_1)
             for bit in range(self.bytes_per_point):
                 pass
                 # 交换

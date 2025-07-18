@@ -22,7 +22,7 @@ OpenGL.FULL_LOGGING = False
 import pyqtgraph.opengl as gl
 # 设置使用硬件加速
 pyqtgraph.setConfigOption('useOpenGL', True)
-
+from interfaces.public.utils import set_logo
 #
 from usb.core import USBError
 import sys
@@ -177,12 +177,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
             self.set_enable_state()
 
     def pre_initialize(self):
-        self.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow",
-                                                              "E-skin Display" if LAN == "en" else "电子皮肤采集程序"))
-        self.setWindowIcon(QtGui.QIcon("./interfaces/ordinary/layout/tujian.ico"))
-        logo_path = "./interfaces/ordinary/resources/logo.png"
-        self.label_logo.setPixmap(QtGui.QPixmap(logo_path))
-        self.label_logo.setScaledContents(True)
+        set_logo(self, True)
         self.initialize_image()
         self.initialize_buttons()
         self.initialize_others()
@@ -193,7 +188,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
 
     def create_3d_plot(self, fig_widget: QtWidgets.QWidget):
         self.view = gl.GLViewWidget()
-        self.view.setCameraPosition(pos=QtGui.QVector3D(0.64, 0.77, 0.5), distance=0.3, elevation=30, azimuth=50)
+        self.view.setCameraPosition(pos=QtGui.QVector3D(0.64, 0.77, 0.4), distance=0.3, elevation=30, azimuth=50)
         self.grid = gl.GLGridItem()
         self.view.addItem(self.grid)
         layout = QtWidgets.QGridLayout()

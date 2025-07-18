@@ -134,9 +134,10 @@ class Window(QtWidgets.QWidget, Ui_Form):
             ) for k in config_mapping['shape'].keys()}
         else:
             self.filters_for_each = None
-        self.data_handler.filter_after_zero = (RCFilterHP(self.data_handler.driver, alpha=0.01, limit=1e-4)
-                                               * RCFilter(self.data_handler.driver, alpha=1.2)
-                                               * OverallFocusFilter(self.data_handler.driver, power=2.))
+        # self.data_handler.filter_after_zero = (RCFilterHP(self.data_handler.driver, alpha=0.01, limit=1e-4)
+        #                                        * RCFilter(self.data_handler.driver, alpha=1.2)
+        #                                        * OverallFocusFilter(self.data_handler.driver, power=2.))
+        self.data_handler.filter_after_zero = (RCFilterHP(self.data_handler.driver, alpha=0.01, limit=1e-4))
         self.pre_initialize()
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.trigger)
@@ -160,7 +161,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         # 这里经常改
         if self._using_calibration:
             calibrated_range = self.data_handler.calibration_adaptor.range()
-            return [calibrated_range[0] * 0.01, calibrated_range[1] * 0.05]
+            return [calibrated_range[0] * 0.02, calibrated_range[1] * 0.2]
         else:
             return [-self.log_y_lim[1], -self.log_y_lim[0]]
 
@@ -336,7 +337,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         pass
 
     def __set_interpolate_and_blur(self):
-        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=0.5)
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=1.)
 
     def __set_calibrator(self, path=None):
         if path is None:
