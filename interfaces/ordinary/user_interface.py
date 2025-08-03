@@ -1,8 +1,5 @@
-"""
-显示界面，适用于large采集卡
-顺便可以给small采集卡使用
-"""
 
+import os
 from PyQt5 import QtCore, QtWidgets, QtGui
 from interfaces.ordinary.layout.layout_user import Ui_MainWindow
 #
@@ -46,6 +43,7 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.trigger)
         #
+        self.current_db_path = None
 
     def __mode_selector(self, mode):
         if mode == 'standard':
@@ -134,6 +132,8 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
         self.action_load_calibration.triggered.connect(self.__set_calibrator)
         self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
         self.action_exit_calibration.triggered.connect(self.__abandon_calibrator)
+        # 播放功能
+        self.button_play.clicked.connect(self.__trigger_play_button)  # 连接播放按钮
 
     def __set_enable_state(self):
         # 根据实际的开始/停止状态，设定各按钮是否激活
@@ -190,6 +190,74 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
             if file[0]:
                 self.data_handler.link_output_file(file[0])
         self.__set_enable_state()
+
+    # 播放按钮（选择并读取数据库文件）
+    def __trigger_play_button(self):
+        # 仅当未播放或播放完成时开启计时
+        if not self.data_handler.play_complete_flag:
+            '''
+            调用了self.timer.start()以启用qt的trigger循环
+            '''
+            self.timer.start(self.config['trigger_time'])
+            self.button_play.setText("暂停")
+
+        # 播放完成的重置
+        if self.data_handler.play_complete_flag:
+            self.timer.stop() # 终止qt的trigger循环
+            self.current_db_path = None
+            self.data_handler.play_complete_flag = False
+
+            print("播放数据已完成")
+            self.button_play.setText("播放")
+
+        # 如果当前没有加载数据库，则打开文件选择对话框
+        if not self.current_db_path:
+            file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self,
+                "选择数据库文件",
+                "",
+                "SQLite 数据库 (*.db);;所有文件 (*)"
+            )
+
+            if file_path:
+                try:
+                    # 显示加载状态
+                    print(f"正在读取数据库: {os.path.basename(file_path)}")
+                    self.button_play.setEnabled(False)
+                    QtWidgets.QApplication.processEvents()
+
+                    # 调用读取数据库的方法
+                    self.data_handler.read_data_from_db(file_path)
+
+                    # 更新状态
+                    print(f"已加载数据库: {os.path.basename(file_path)}")
+                    self.data_handler.play_flag = True
+                    self.current_db_path = file_path
+
+
+                except Exception as e:
+                    # 错误处理
+                    print(f"读取数据库失败: {str(e)}")
+                    QtWidgets.QMessageBox.critical(self, "错误", f"无法读取数据库:\n{str(e)}")
+                finally:
+                    # 恢复按钮状态
+                    self.button_play.setEnabled(True)
+                    self.__set_enable_state()
+
+        else:
+            # 如果已经加载了数据库，则切换播放状态
+            self.data_handler.play_flag = not self.data_handler.play_flag
+
+            # 更新按钮文本以反映当前状态
+            if self.data_handler.play_flag:
+                print("已开始播放数据")
+                self.button_play.setText("暂停")
+            else:
+                print("已暂停播放数据")
+                self.button_play.setText("继续播放")
+
+            self.__set_enable_state()
+
 
     def trigger(self):
         try:

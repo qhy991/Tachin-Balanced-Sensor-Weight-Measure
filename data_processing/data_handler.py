@@ -12,6 +12,8 @@ from config import config
 import threading
 from data_processing.calibrate_adaptor import CalibrateAdaptor
 from data_processing.calibration.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
+import time
+from data_processing.convert_data import extract_data, dataframe_to_numpy
 VALUE_DTYPE = float
 
 
@@ -70,6 +72,10 @@ class DataHandler:
         #
         self.dump_interval = config.get("dump_interval", 10.) * 0.001
         self.next_dump = 0.
+        #
+        self.play_data = None
+        self.play_flag = False
+        self.play_complete_flag = False
 
     # 保存功能。部分保存功能还有待测试
     def link_output_file(self, path):
@@ -177,8 +183,67 @@ class DataHandler:
         flag = self.driver.disconnect()
         return flag
 
+    # 重放
+
+    def read_data_from_db(self, path):
+        """
+        从 SQLite 数据库读取数据
+        :param path: 数据库文件路径
+        :return: 包含所有数据的列表
+        """
+        try:
+            data = extract_data(path)
+            data = dataframe_to_numpy(data)
+
+            # 播放模式参数
+            self.play_fps = 100.0  # 默认帧率（帧/秒）
+            self.play_interval = 1.0 / self.play_fps  # 每帧持续时间（秒）
+            self.play_start_time = None  # 播放模式起始时间（首次播放时初始化）
+            self.play_frame_count = 0  # 已播放帧数
+            self.last_frame_time = None  # 上一帧的虚构时间
+
+            data = np.array(data)
+            self.play_data = data
+
+        except FileNotFoundError:
+            raise Exception('指定的数据库文件不存在')
+        except sqlite3.Error as e:
+            raise Exception(f'数据库操作错误: {str(e)}')
+        except Exception as e:
+            raise Exception(f'读取文件时发生未知错误: {str(e)}')
+
     def get_data(self):
-        data, time_now = self.driver.get()
+        if self.play_flag == False:
+            data, time_now = self.driver.get()
+        else:  # 进入播放模式
+            # 初始化播放起始时间
+            if self.play_start_time is None:
+                self.play_start_time = time.time()  # 使用系统时间作为起始点
+                self.last_frame_time = self.play_start_time
+
+            # 计算当前帧的预期时间
+            current_expected_time = self.play_start_time + self.play_frame_count * self.play_interval
+
+            # 等待直到达到预期时间（控制帧率）
+            while time.time() < current_expected_time:
+                time.sleep(0.001)  # 短暂休眠避免CPU占用过高
+
+            # 更新时间戳和帧计数
+            self.play_frame_count += 1
+            time_now = current_expected_time  # 使用预期时间作为time_now
+            self.last_frame_time = time_now
+            self.play_frame_count += 1
+            time_now = self.play_start_time + self.play_frame_count * self.play_interval
+            # 尚未播放完
+            if self.play_data.shape[0] >= 2:
+                # 切一帧来
+                data = self.play_data[0]
+                self.play_data = self.play_data[1:]
+            else:
+                # 播放已经结束
+                self.play_complete_flag = True
+                self.play_flag = False
+                data = None
         return data, time_now
 
     def trigger(self):

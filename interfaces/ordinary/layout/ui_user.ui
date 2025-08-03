@@ -33,6 +33,19 @@
          </widget>
         </item>
         <item>
+         <widget class="QPushButton" name="button_play">
+          <property name="font">
+           <font>
+            <family>Arial</family>
+            <pointsize>10</pointsize>
+           </font>
+          </property>
+          <property name="text">
+           <string>播放</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QPushButton" name="button_stop">
           <property name="font">
            <font>
