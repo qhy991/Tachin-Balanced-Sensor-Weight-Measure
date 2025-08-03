@@ -22,7 +22,7 @@ def extract_data(path):
                 i = int(c.split('_')[-1])
                 data_row = np.vectorize(json.loads, otypes=[object])(data[c].values)
                 print(data_row.shape)
-                if not bool(data_row):
+                if not bool(data_row.shape):
                     print('文件为空')
                     return None
                 data_row = np.array([_ for _ in data_row])
@@ -34,6 +34,9 @@ def extract_data(path):
                 j = int(c.split('_')[-3])
                 data_row = np.vectorize(json.loads, otypes=[object])(data[c].values)
                 data_row = np.array([_ for _ in data_row])
+                if not bool(data_row.shape[0]):
+                    print('文件为空')
+                    return None
                 to_be_concatenated.append(pd.DataFrame(data_row,
                                                          columns=[f'data_region_{j}_row_{i}_col_{k}'
                                                                   for k in range(data_row.shape[1])]))

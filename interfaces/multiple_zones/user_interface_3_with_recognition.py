@@ -8,8 +8,7 @@ LAN = 'chs'
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
-from multiple_skins.tactile_spliting import get_split_driver_class
-import time
+from backends.tactile_split import get_split_driver_class
 from interfaces.multiple_zones.layout.layout_3 import Ui_Form
 import pyqtgraph
 import os

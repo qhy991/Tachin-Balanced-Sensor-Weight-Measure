@@ -1,12 +1,9 @@
-"""数据处理中心"""
-
 import os
-import time
 import warnings
 from collections import deque
 import numpy as np
 import atexit
-import data_processing.preprocessing as preprocessing
+import data_processing.filters as preprocessing
 from data_processing.interpolation import Interpolation
 import json
 import sqlite3
@@ -14,8 +11,7 @@ from data_processing.convert_data import convert_db_to_csv
 from config import config
 import threading
 from data_processing.calibrate_adaptor import CalibrateAdaptor
-from data_processing.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
-from data_processing.convert_data import extract_data, dataframe_to_numpy
+from data_processing.calibration.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
 VALUE_DTYPE = float
 
 
@@ -24,10 +20,15 @@ class DataHandler:
     ZERO_LEN_REQUIRE = 4
     MAX_IN = 16
 
-    def __init__(self, template_sensor_driver, max_len=64, curve_on=True):
+    def __init__(self, template_sensor_driver, max_len=64):
+        """
+        数据枢纽
+        :param template_sensor_driver: SensorDriver的构造函数
+        :param max_len: 保存数据长度。注意与SensorDriver自身的缓冲无关
+        """
         self.max_len = max_len
         self.driver = template_sensor_driver()  # 传感器驱动
-        # 滤波器
+        # 滤波器。调用顺序见trigger方法
         self.filter_time = preprocessing.Filter(template_sensor_driver)  # 当前的时间滤波。可被设置
         self.filter_frame = preprocessing.Filter(template_sensor_driver)  # 当前的空间滤波。可被设置
         self.filters_for_each = None
@@ -35,14 +36,12 @@ class DataHandler:
         self.filters_for_each_after_zero = None
         self.preset_filters = preprocessing.build_preset_filters(template_sensor_driver)  # 下拉菜单里可设置的滤波器
         self.interpolation = Interpolation(1, 0., template_sensor_driver.SENSOR_SHAPE)  # 插值。可被设置
-        self.curve_on = curve_on
-        #
         # region_count为0表示为单片；否则为分片
         try:
             self.region_indices = template_sensor_driver.range_mapping.keys()
         except AttributeError:
             self.region_indices = []
-        # 分片模式下，数据的处理方式会有区别
+        # 标定
         self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 标定器
         self.using_calibration = False
         # 数据容器
@@ -72,8 +71,7 @@ class DataHandler:
         self.dump_interval = config.get("dump_interval", 10.) * 0.001
         self.next_dump = 0.
 
-
-    # 保存功能
+    # 保存功能。部分保存功能还有待测试
     def link_output_file(self, path):
         # 采集到文件时，打开文件
         try:
@@ -168,11 +166,6 @@ class DataHandler:
         self.t_tracing.clear()
         self.lock.release()
 
-    @property
-    def smoothed_value(self):
-        warnings.warn("OBSOLETE API: smoothed_value")
-        return self.value
-
     def connect(self, port):
         self.begin_time = None
         flag = self.driver.connect(port)  # 会因import的驱动类型而改变
@@ -189,22 +182,22 @@ class DataHandler:
         return data, time_now
 
     def trigger(self):
-        # 循环触发
-        count_in = self.MAX_IN
+        """
+        核心触发
+        :return: None
+        """
+        count_in = self.MAX_IN  # 一次触发最大读取数据量。避免提取数据的速度赶不上SensorDriver累积数据速度
         while count_in:
             count_in -= 1
-            data, time_now = self.get_data()
+            data, time_now = self.get_data()  # 从其缓存中最早的数据开始逐一提取和处理
             if data is not None:
-                # 原始数据
-                # 滤波数据
+                # 以下为各类滤波器处理顺序
                 _ = self.filter_time.filter(self.filter_frame.filter(data))
                 if self.filters_for_each is not None:
                     for k in self.filters_for_each:
                         _[k] = self.filters_for_each[k].filter(_[k])
-
                 value = self.calibration_adaptor.transform_frame(_.astype(float) * self.driver.SCALE)
                 value = self.interpolation.smooth(value)
-                # 换算值
                 value_before_zero = value
                 _ = self.filter_after_zero.filter(value_before_zero - self.zero)
                 if self.filters_for_each_after_zero is not None:
@@ -215,7 +208,7 @@ class DataHandler:
                 if self.begin_time is None:
                     self.begin_time = time_now
                 time_after_begin = time_now - self.begin_time
-                # 导出
+                # 导出基础特征
                 summed = np.sum(value)
                 maximum = np.max(value)
                 tracings = []
@@ -229,16 +222,14 @@ class DataHandler:
 
                 self.lock.acquire()
                 self.data.append(data)
-                # self.filtered_data.append(data_f)
                 self.value_before_zero.append(value_before_zero)
                 self.value.append(value)
                 self.time.append(time_after_begin)
-                if self.curve_on:
-                    self.t_tracing.append(time_after_begin)
-                    self.time_ms.append(np.array([(time_after_begin * 1e3) % 10000], dtype='>i2'))  # ms
-                    self.maximum.append(maximum)
-                    self.summed.append(summed)
-                    self.tracings.append(tracings)
+                self.t_tracing.append(time_after_begin)
+                self.time_ms.append(np.array([(time_after_begin * 1e3) % 10000], dtype='>i2'))  # ms
+                self.maximum.append(maximum)
+                self.summed.append(summed)
+                self.tracings.append(tracings)
                 self.lock.release()
                 #
                 try:
@@ -249,8 +240,11 @@ class DataHandler:
                 break
         # print(f"取得数据{self.MAX_IN - count_in}条")
 
-    def set_zero(self):
-        # 置零
+    def set_zero(self) -> bool:
+        """
+        置零
+        :return: 是否成功
+        """
         if self.value_before_zero.__len__() >= self.ZERO_LEN_REQUIRE + self.filter_time.order * 2:
             self.zero_set = True
             self.zero = np.mean(np.maximum(np.asarray(self.value_before_zero)[-self.ZERO_LEN_REQUIRE:, ...], 0), axis=0)
@@ -262,12 +256,21 @@ class DataHandler:
             return False
 
     def abandon_zero(self):
-        # 解除置零
+        """
+        解除置零
+        :return:
+        """
         self.zero = np.zeros([_ * self.interpolation.interp for _ in self.driver.SENSOR_SHAPE],
                              dtype=self.driver.DATA_TYPE)
         self.zero_set = False
 
     def set_filter(self, filter_name_frame, filter_name_time):
+        """
+        在预设模组中选择滤波器。注意空间滤波器和时间滤波器实际没有约束
+        :param filter_name_frame: 空间滤波器名
+        :param filter_name_time: 时间滤波器名
+        :return:
+        """
         try:
             self.filter_frame = self.preset_filters[filter_name_frame]()
             self.filter_time = self.preset_filters[filter_name_time]()
@@ -277,6 +280,12 @@ class DataHandler:
             raise Exception('指定的滤波器不存在')
 
     def set_tracing(self, i, j):
+        """
+        添加追踪点
+        :param i: 行标。输入超限值清除追踪
+        :param j: 列标。输入超限值清除追踪
+        :return: 正在追踪的点数
+        """
         # 鼠标选点时，设置追踪点
         if 0 <= i < self.driver.SENSOR_SHAPE[0] and 0 <= j < self.driver.SENSOR_SHAPE[1]:
             if (i, j) in self.tracing_points:
@@ -284,6 +293,10 @@ class DataHandler:
                 self.tracing_points.remove((i, j))
             else:
                 self.tracing_points.append((i, j))
+            self.t_tracing.clear()
+            self.tracings.clear()
+        else:
+            self.tracing_points.clear()
             self.t_tracing.clear()
             self.tracings.clear()
         return self.tracing_points.__len__()
@@ -314,14 +327,3 @@ class DataHandler:
         self.abandon_zero()
         self.clear()
         self.using_calibration = False
-
-if __name__ == '__main__':
-    from backends.usb_driver import LargeUsbSensorDriver
-    import time
-    data_handler = DataHandler(LargeUsbSensorDriver)
-    data_handler.connect(0)
-
-    while True:
-        data_handler.trigger()
-        time.sleep(0.001)
-

@@ -29,7 +29,7 @@ import sys
 import traceback
 import numpy as np
 from data_processing.data_handler import DataHandler
-from data_processing.preprocessing import build_preset_filters
+from data_processing.filters import build_preset_filters
 from backends.usb_driver import LargeUsbSensorDriver
 #
 from config import config, save_config
@@ -116,7 +116,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self.catch_exceptions
         #
         if mode == 'direct':
-            self.data_handler = DataHandler(LargeUsbSensorDriver, max_len=4, curve_on=False)
+            self.data_handler = DataHandler(LargeUsbSensorDriver, max_len=4)
         else:
             raise NotImplementedError()
         self.fixed_range = fixed_range
@@ -295,7 +295,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.dump_config()
 
     def __set_interpolate_and_blur(self):
-        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=3)
+        self.data_handler.set_interpolation_and_blur(interpolate=1, blur=2)
         self.dump_config()
 
     def __set_calibrator(self):

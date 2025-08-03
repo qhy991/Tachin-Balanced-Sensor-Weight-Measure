@@ -75,70 +75,72 @@ class UsbBackend:
             raise e
 
     def query_dna(self):
-        if self.active:
-            # 发送查询DNA的指令
+        assert self.active
+        # 发送查询DNA的指令
+        while True:
             try:
-                while True:
-                    try:
-                        self.epvi_t.read(1)
-                    except usb.core.USBError as e:
-                        break
-                self.epvo_t.write(b'\x3c\x01')
-                time.sleep(DELAY)  # 等待设备响应
-                dna_response = array('B', [])
-                while True:
-                    try:
-                        dna_response.extend(self.epvi_t.read(1))
-                    except usb.core.USBError as e:
-                        break
+                self.epvi_t.read(1)
+            except usb.core.USBError as e:
+                break
+        self.epvo_t.write(b'\x3c\x01')
+        time.sleep(DELAY)  # 等待设备响应
+        dna_response = array('B', [])
+        while True:
+            try:
+                dna_response.extend(self.epvi_t.read(1))
+            except usb.core.USBError as e:
+                break
+        if dna_response:
+            try:
                 parts = [dna_response[i] << 8 | dna_response[i + 1] for i in range(0, 8, 2)]
                 dna = '_'.join(f'{p:04X}' for p in parts)
-                print(dna)
+                print(f"采集卡编号：{dna}")
                 return dna
-            except usb.core.USBError as e:
-                self.err_queue.append(e)
-                print(e)
-                raise Exception('获取板卡DNA失败')
-        return None
+            except:
+                print("OTA功能出错")
+                return None
+        else:
+            print("采集卡不具备OTA功能")
+            return None
 
     def set_key(self, key_str):
         # key为字符串输入，形如D854_2791_C023_89B4
-        if self.active:
-            assert isinstance(key_str, str) and key_str.__len__() == 19, "Key格式错误"
-            try:
-                while True:
-                    try:
-                        self.epvi_t.read(1)
-                    except:
-                        break
-                self.epvo_t.write(b'\x3c\x02')
-                time.sleep(DELAY)
-                hex_parts = key_str.split('_')
-                key_bytes = b''.join(int(part, 16).to_bytes(2, 'big') for part in hex_parts)
-                while True:
-                    try:
-                        self.epvi_t.read(1)
-                    except:
-                        break
-                self.epvo_t.write(key_bytes)
-                time.sleep(DELAY)
-                self.epvo_t.write(b'\x3c\x03')
-                time.sleep(DELAY)
-                read = self.epvi_t.read(16).tobytes()
-                # read形如“array('B', [85, 170])”。将它与55aa或3355对比
-                if read == b'\x55\xaa':
-                    self.key_set = True
-                    return True
-                elif read == b'\x33\x55':
-                    self.key_set = False
-                    print('激活失败')
-                    return False
-                else:
-                    print("激活状态未知")
-                    return False
-            except usb.core.USBError as e:
-                warnings.warn("板卡版本可能不匹配")
+        assert self.active
+        assert isinstance(key_str, str) and key_str.__len__() == 19, "Key格式错误"
+        try:
+            while True:
+                try:
+                    self.epvi_t.read(1)
+                except:
+                    break
+            self.epvo_t.write(b'\x3c\x02')
+            time.sleep(DELAY)
+            hex_parts = key_str.split('_')
+            key_bytes = b''.join(int(part, 16).to_bytes(2, 'big') for part in hex_parts)
+            while True:
+                try:
+                    self.epvi_t.read(1)
+                except:
+                    break
+            self.epvo_t.write(key_bytes)
+            time.sleep(DELAY)
+            self.epvo_t.write(b'\x3c\x03')
+            time.sleep(DELAY)
+            read = self.epvi_t.read(16).tobytes()
+            # read形如“array('B', [85, 170])”。将它与55aa或3355对比
+            if read == b'\x55\xaa':
+                self.key_set = True
                 return True
+            elif read == b'\x33\x55':
+                self.key_set = False
+                warnings.warn('激活失败')
+                return False
+            else:
+                warnings.warn('激活状态未知')
+                return False
+        except usb.core.USBError as e:
+            warnings.warn("板卡版本可能不匹配")
+            return True
 
     def stop(self):
         self.active = False

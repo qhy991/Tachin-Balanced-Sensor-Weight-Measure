@@ -1,0 +1,3 @@
+call activate sensor_driver_gui
+pyinstaller -D interface_hand_shape_zv.py -i resources\logo.ico --noconfirm --add-data "C:\Windows\System32\libusb-1.0.dll;." --add-data ".\config_files\config.json;.\config_files" --add-data ".\config_files\config_array_zv.json;.\config_files" --add-data ".\config_files\config_mapping_zv.json;.\config_files" --add-data ".\resources\logo.ico;.\resources" --add-data ".\resources\logo_tachin_zw_0.png;.\resources" --add-data ".\interfaces\hand_shape\resources\hand_zv.png;.\interfaces\hand_shape\resources" --add-data ".\config_files\key.txt;.\config_files" --add-data ".\calibrate_files\calibration_z.clb;.\calibrate_files"
+pause

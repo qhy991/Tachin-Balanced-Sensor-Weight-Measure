@@ -9,10 +9,10 @@ from PIL import Image, ImageDraw
 from collections import deque
 import pyqtgraph
 from pyqtgraph.opengl import GLViewWidget, GLGridItem, GLLinePlotItem, GLSurfacePlotItem
-from data_processing.preprocessing import MedianFilter
+from data_processing.filters import MedianFilter
 from interfaces.hand_shape.feature_extractor import FingerFeatureExtractor
 from data_processing.interpolation import Interpolation
-from utils.performance_monitor import Ticker
+from utils.debug import Ticker
 from PyQt5.QtGui import QWheelEvent
 from PyQt5 import QtWidgets
 from data_processing.data_handler import DataHandler

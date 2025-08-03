@@ -1,10 +1,10 @@
-from backends.abstract_sensor_driver import AbstractSensorDriver
+from backends.abstract_sensor_driver import SensorDriver
 import json
 from backends.serial_backend import SerialBackend
 import os
 
 
-class SerialSensorDriver(AbstractSensorDriver):
+class SerialSensorDriver(SensorDriver):
     # 传感器驱动
 
     SCALE = (32768. * 25. / 5.) ** -1  # 示数对应到电阻倒数的系数。与采集卡有关

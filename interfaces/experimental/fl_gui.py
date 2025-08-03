@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
 from PyQt5.QtCore import QTimer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from backends.fl_driver import FLDriver
+from backends.OLD.fl_driver import FLDriver
 
 
 class PlotCanvas(FigureCanvas):

@@ -51,6 +51,9 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
         if mode == 'standard':
             from backends.usb_driver import LargeUsbSensorDriver
             data_handler = DataHandler(LargeUsbSensorDriver)
+        elif mode == 'can':
+            from backends.can_driver import Can16SensorDriver
+            data_handler = DataHandler(Can16SensorDriver)
         else:
             raise NotImplementedError()
         return data_handler
@@ -92,6 +95,8 @@ class Window(QtWidgets.QMainWindow, Ui_MainWindow):
     def __initialize_buttons(self):
         # 菜单栏全部关闭
         self.menubar.setEnabled(False)
+        # 临时隐藏munubar
+        self.menubar.hide()
         # 开始
         self.button_start.clicked.connect(self.start)
         self.action_start.triggered.connect(self.start)

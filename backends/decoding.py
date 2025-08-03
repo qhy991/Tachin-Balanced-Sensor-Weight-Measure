@@ -1,4 +1,4 @@
-# 公用的解码程序
+# 通用的解码程序
 
 import time
 import warnings
@@ -129,7 +129,6 @@ class Decoder:
         for extra_swap_pair in self.extra_swap:
             (row_0, col_0), (row_1, col_1) = extra_swap_pair
             for bit in range(self.bytes_per_point):
-                pass
                 # 交换
                 self.finished_frame[bit][row_0 * self.sensor_shape[1] + col_0], \
                     self.finished_frame[bit][row_1 * self.sensor_shape[1] + col_1] = \

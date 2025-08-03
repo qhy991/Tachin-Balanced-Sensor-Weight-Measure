@@ -3,7 +3,6 @@
 """
 LAN = 'chs'
 # LAN = 'en'
-import threading
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 # from interfaces.hand_shape.layout.layout_3D import Ui_Form
@@ -12,24 +11,20 @@ import pyqtgraph
 import sys
 import time
 import os
-import traceback
-import numpy as np
 from data_processing.data_handler import DataHandler
-from PIL import Image, ImageDraw
-from config import config, save_config, get_config_mapping
+from PIL import Image
+from config import get_config_mapping
 from collections import deque
 from usb.core import USBError
-from multiple_skins.tactile_spliting import get_split_driver_class
-from data_processing.preprocessing import Filter, MedianFilter, RCFilterHP, SideFilter
+from backends.tactile_split import get_split_driver_class
+from data_processing.filters import MedianFilter, SideFilter
 # from interfaces.hand_shape.hand_plot_manager_3D import HandPlotManager
 from interfaces.hand_shape.hand_plot_manager import HandPlotManager
 
-from data_processing.preprocessing import Filter, ExtensionFilter, MeanFilter
-
+from data_processing.filters import Filter
 
 from interfaces.public.utils import (set_logo,
-                                     config, save_config, catch_exceptions,
-                                     apply_swap)
+                                     config, save_config, catch_exceptions)
 
 STR_CONNECTED = "Connected" if LAN == "en" else "已连接"
 STR_DISCONNECTED = "Disconnected" if LAN == "en" else "未连接"
@@ -52,6 +47,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         sys.excepthook = self._catch_exceptions
         #
         default_calibration_name = None
+        self.mode = mode
         if mode == 'zw':
             from backends.usb_driver import ZWUsbSensorDriver as SensorDriver
             # 修改horizontalLayout_3的layoutStretch
@@ -60,17 +56,17 @@ class Window(QtWidgets.QWidget, Ui_Form):
             from backends.usb_driver import ZYUsbSensorDriver as SensorDriver
             self.horizontalLayout_3.setStretch(0, 1)
             self.horizontalLayout_3.setStretch(1, 1)
-            default_calibration_name = f'calibration_{mode}.clb'
-        elif mode in ['z_v']:
+            default_calibration_name = f'calibration_log.clb'
+        elif mode == 'zv':
             from backends.usb_driver import ZWUsbSensorDriverWithValidation as SensorDriver
             self.horizontalLayout_3.setStretch(0, 1)
             self.horizontalLayout_3.setStretch(1, 1)
             default_calibration_name = 'calibration_z.clb'
-        elif mode == 'zv':
-            from backends.usb_driver import ZVUsbSensorDriver as SensorDriver
+        elif mode in ['yl']:
+            from backends.usb_driver import LargeUsbSensorDriverYL as SensorDriver
             self.horizontalLayout_3.setStretch(0, 1)
             self.horizontalLayout_3.setStretch(1, 1)
-            default_calibration_name = 'calibration_z.clb'
+            default_calibration_name = f'calibration_log.clb'
         elif mode == 'gl':
             from backends.usb_driver import GLUsbSensorDriver as SensorDriver
             self.horizontalLayout_3.setStretch(0, 1)
@@ -167,7 +163,7 @@ class Window(QtWidgets.QWidget, Ui_Form):
         self.hand_plot_manager.clear()
 
     def pre_initialize(self):
-        set_logo(self)
+        set_logo(self, dark_theme=True, logo_suffix='_tachin_zw_0' if self.mode=='zv' else '')
         self.initialize_buttons()
         self.__set_enable_state()
 

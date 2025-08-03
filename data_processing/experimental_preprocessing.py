@@ -1,4 +1,4 @@
-from data_processing.preprocessing import Filter
+from data_processing.filters import Filter
 import numpy as np
 import os, pickle, atexit
 import matplotlib.pyplot as plt

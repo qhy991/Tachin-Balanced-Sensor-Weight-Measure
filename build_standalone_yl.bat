@@ -1,0 +1,3 @@
+call activate sensor_driver_gui
+pyinstaller -D interface_hand_shape_yl.py -i resources\logo.ico --noconfirm --add-data "C:\Windows\System32\libusb-1.0.dll;." --add-data ".\config_files\config.json;.\config_files" --add-data ".\config_files\config_array_special_hand.json;.\config_files" --add-data ".\config_files\config_mapping_yl.json;.\config_files" --add-data ".\resources\logo.ico;.\resources" --add-data ".\resources\logo_dark.png;.\resources" --add-data ".\interfaces\hand_shape\resources\hand_yl.png;.\interfaces\hand_shape\resources" --add-data ".\calibrate_files\calibration_log.clb;.\calibrate_files"
+pause

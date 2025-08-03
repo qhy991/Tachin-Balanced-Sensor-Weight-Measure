@@ -29,11 +29,13 @@ def catch_exceptions(window, ty, value, tb):
     QtWidgets.QMessageBox.critical(window, "错误", "{}".format(value))
 
 # DARK_THEME: 传入dark_theme参数
-def set_logo(window, dark_theme=False):
+def set_logo(window, dark_theme=False, logo_suffix=''):
     window.setWindowTitle(QtCore.QCoreApplication.translate("MainWindow", "电子皮肤采集程序"))
     window.setWindowIcon(QtGui.QIcon(os.path.join(RESOURCE_FOLDER, "logo.ico")))
     # DARK_THEME: 区分两种图标
-    logo_path = os.path.join(RESOURCE_FOLDER, f"logo_{'dark' if dark_theme else 'light'}.png")
+    if not logo_suffix:
+        logo_suffix = '_dark' if dark_theme else '_light'
+    logo_path = os.path.join(RESOURCE_FOLDER, f"logo{logo_suffix}.png")
     pixmap = QtGui.QPixmap(logo_path)
     window.label_logo.setPixmap(pixmap)
     window.label_logo.setScaledContents(True)

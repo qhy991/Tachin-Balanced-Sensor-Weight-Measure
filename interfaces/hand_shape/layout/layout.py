@@ -145,6 +145,6 @@ class Ui_Form(object):
         self.button_load_calibration.setText(_translate("Form", "加载标定文件..."))
         self.button_set_zero.setText(_translate("Form", "零点修正"))
         self.button_abandon_zero.setText(_translate("Form", "去除修正"))
-        self.label_fixed.setText(_translate("Form", "手掌电子皮肤显示程序V1.6  途见科技（北京）有限公司"))
+        self.label_fixed.setText(_translate("Form", "手掌电子皮肤显示程序  途见科技（北京）有限公司"))
 from pyqtgraph import GraphicsLayoutWidget
 from pyqtgraph.widgets.RawImageWidget import RawImageWidget

@@ -10,15 +10,15 @@ from collections import deque
 import pyqtgraph
 from interfaces.hand_shape.feature_extractor import FingerFeatureExtractor
 from data_processing.interpolation import Interpolation
-from utils.performance_monitor import Ticker
+from utils.debug import Ticker
 from PyQt5.QtGui import QWheelEvent
 
 from data_processing.data_handler import DataHandler
 legend_color = lambda i: pyqtgraph.intColor(i, 16 * 1.5, maxValue=127 + 64)
-STANDARD_PEN = pyqtgraph.mkPen('k')
+STANDARD_PEN = pyqtgraph.mkPen('w')
 from config import config, save_config, get_config_mapping
 
-DISP_THRE = 0.001
+DISP_THRE = 0.05
 
 MINIMUM_Y_LIM = 0
 MAXIMUM_Y_LIM = 5
@@ -80,8 +80,8 @@ class HandPlotManager:
         # ax.getAxis('left').tickStrings = lambda values, scale, spacing: \
         #     [f'{10 ** (-_): .1f}' for _ in values]
         # ax.getViewBox().setYRange(-self.log_y_lim[1], -self.log_y_lim[0])
-        fig_widget_1d.setBackground('w')
-        ax.getViewBox().setBackgroundColor([255, 255, 255])
+        # fig_widget_1d.setBackground('w')
+        # ax.getViewBox().setBackgroundColor([255, 255, 255])
         ax.getAxis('bottom').setPen(STANDARD_PEN)
         ax.getAxis('left').setPen(STANDARD_PEN)
         ax.getAxis('bottom').setTextPen(STANDARD_PEN)
@@ -212,8 +212,8 @@ class HandPlotManager:
             if filter is not None:
                 data = filter.filter(data)
             data = (data - y_lim[0]) / (y_lim[1] - y_lim[0])
-            data = Interpolation(2, 1.0, data.shape).smooth(data * rect[3])
-            data = np.clip(data * 10.0, 0., 1.)
+            data = Interpolation(2, 0.75, data.shape).smooth(data * rect[3])
+            data = np.clip(data * 2.0, 0., 1.) ** 0.5
             img_original = Image.fromarray((self.cmap.map(data.T, mode=float) * 255.).astype(np.uint8),
                                            mode='RGBA')
             img_scaled = img_original.resize((int(new_shape[0] * self.resize_transform[0]),
@@ -235,11 +235,12 @@ class HandPlotManager:
                 if self.region_x_diff[idx] and self.region_y_diff[idx]:
                     x_diff = self.region_x_diff[idx][-1] * self.resize_transform[0]
                     y_diff = self.region_y_diff[idx][-1] * self.resize_transform[1]
-                    arrow_length = np.sqrt(x_diff ** 2 + y_diff ** 2)
+                    arrow_length = np.sqrt(x_diff ** 2 + y_diff ** 2) * 0.5
                     arrow_angle = np.arctan2(y_diff, x_diff)
                     arrow_end_x = center[0] * self.resize_transform[0] + offset_x + arrow_length * np.cos(arrow_angle) + self.resize_transform[2]
                     arrow_end_y = center[1] * self.resize_transform[1] + offset_y + arrow_length * np.sin(arrow_angle) + self.resize_transform[3]
 
+                    # 重置alpha通道为全不透明
                     draw = ImageDraw.Draw(self.processing_image)
                     if arrow_length > 2:
                         draw.line([(center[0] * self.resize_transform[0] + offset_x + self.resize_transform[2],

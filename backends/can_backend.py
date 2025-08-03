@@ -8,7 +8,7 @@ import numpy as np
 from backends.decoding import Decoder
 import json
 
-config_can = json.load(open(os.path.join(os.path.dirname(__file__), 'config_can.json'), 'rt'))
+config_can = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_can.json'), 'rt'))
 device_index = int(config_can['device_index'])
 channel_index = int(config_can['channel_index'])
 baud_rate = int(config_can['baud_rate'])
@@ -108,7 +108,7 @@ class CanDevice:
             self.ADDR = self.STRUCT_ARRAY[0]  # 结构体数组地址  byref()转c地址
 
     def __init__(self):
-        CanDLLName = os.path.join(os.path.dirname(__file__), './ControlCAN.dll')  # 把DLL放到对应的目录下
+        CanDLLName = os.path.join(os.path.dirname(__file__), '../extern/ControlCAN.dll')  # 把DLL放到对应的目录下
         self.canDLL = windll.LoadLibrary(CanDLLName)
         # Linux系统下使用下面语句，编译命令：python3 python3.8.0.py
         # canDLL = cdll.LoadLibrary('./libcontrolcan.so')

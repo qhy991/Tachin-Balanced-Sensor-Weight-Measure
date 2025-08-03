@@ -6,8 +6,8 @@ import threading
 import pickle
 import atexit
 import os
-from data_processing.preprocessing import RCFilterHP
-from data_processing.preprocessing import RCFilter
+from data_processing.filters import RCFilterHP
+from data_processing.filters import RCFilter
 from interfaces.multiple_zones.feature_extractor_model import FeatureExtractorStatistics
 
 SCALE = 32768. * 25. / 5.

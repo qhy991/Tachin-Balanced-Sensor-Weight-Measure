@@ -8,8 +8,7 @@ LAN = 'chs'
 from PyQt5 import QtCore, QtWidgets, QtGui
 from PyQt5.QtWidgets import QGraphicsSceneWheelEvent
 from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent
-from multiple_skins.tactile_spliting import get_split_driver_class
-import time
+from backends.tactile_split import get_split_driver_class
 from interfaces.multiple_zones.layout.layout_5 import Ui_Form
 import pyqtgraph
 import os
@@ -19,8 +18,6 @@ import sys
 import traceback
 import numpy as np
 from data_processing.data_handler import DataHandler
-from data_processing.preprocessing import RCFilterHP, RCFilter, ExtensionFilter, MedianFilter, OverallFocusFilter
-from data_processing.experimental_preprocessing import StatisticalRevisionForEach
 #
 from config import config, save_config, get_config_mapping
 from interfaces.public.utils import set_logo

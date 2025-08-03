@@ -1,4 +1,4 @@
-from backends.abstract_sensor_driver import AbstractSensorDriver
+from backends.abstract_sensor_driver import SensorDriver
 import json
 from backends.usb_backend import UsbBackend
 import os
@@ -23,7 +23,7 @@ def trans(frame):
     pass
 
 
-class UsbSensorDriver(AbstractSensorDriver):
+class UsbSensorDriver(SensorDriver):
     # 传感器驱动
 
     SCALE = (32768. * 25. / 5.) ** -1  # 示数对应到电阻倒数的系数。与采集卡有关
@@ -73,11 +73,21 @@ class UsbSensorDriverWithValidation(UsbSensorDriver):
 
     def __init__(self, sensor_shape, config_array):
         super(UsbSensorDriverWithValidation, self).__init__(sensor_shape, config_array)
-        self.key_str = open(os.path.join(os.path.dirname(__file__), '../config_files/key.txt'), 'rt').read().strip()
+        try:
+            self.key_str = open(os.path.join(os.path.dirname(__file__), '../config_files/key.txt'), 'rt').read().strip()
+        except FileNotFoundError:
+            self.key_str = None
 
     def connect(self, port):
         flag = super(UsbSensorDriverWithValidation, self).connect(port)
-        self.sensor_backend.set_key(self.key_str)
+        dna = self.sensor_backend.query_dna()
+        if dna is not None:
+            if self.key_str is None:
+                raise Exception("未找到激活文件")
+            else:
+                self.sensor_backend.set_key(self.key_str)
+        else:
+            pass
         return flag
 
 
@@ -86,9 +96,32 @@ class LargeUsbSensorDriver(UsbSensorDriver):
     SENSOR_SHAPE = (64, 64)
 
     def __init__(self):
-        # config_array = json.load(open(os.path.dirname(__file__) + '../config_files/config_array_zv.json', 'rt'))
+        # config_array = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_zv.json'), 'rt'))
         config_array = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_64.json'), 'rt'))
         super(LargeUsbSensorDriver, self).__init__(self.SENSOR_SHAPE, config_array)
+
+class LargeUsbSensorDriverSpecialHand(UsbSensorDriver):
+
+    SENSOR_SHAPE = (64, 64)
+
+    def __init__(self):
+        config_array = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_special_hand.json'), 'rt'))
+        super(LargeUsbSensorDriverSpecialHand, self).__init__(self.SENSOR_SHAPE, config_array)
+
+
+class LargeUsbSensorDriverYL(UsbSensorDriver):
+
+    SENSOR_SHAPE = (64, 64)
+
+    def __init__(self):
+        config_array = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_special_hand.json'), 'rt'))
+        config_array["extra_swap"] = []
+        for i_original in range(16, 32):
+            for j_original in range(34, 40):
+                i_destination = 31 - i_original
+                j_destination = j_original - 6
+                config_array["extra_swap"].append(((i_original, j_original), (i_destination, j_destination)))
+        super(LargeUsbSensorDriverYL, self).__init__(self.SENSOR_SHAPE, config_array)
 
 
 class ZWUsbSensorDriver(UsbSensorDriver):
@@ -96,7 +129,7 @@ class ZWUsbSensorDriver(UsbSensorDriver):
     SENSOR_SHAPE = (64, 64)
 
     def __init__(self):
-        config_array = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_zw.json'), 'rt'))
+        config_array = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_zv.json'), 'rt'))
         super(ZWUsbSensorDriver, self).__init__(self.SENSOR_SHAPE,
                                                 config_array)
 
@@ -105,7 +138,7 @@ class ZWUsbSensorDriverWithValidation(UsbSensorDriverWithValidation):
     SENSOR_SHAPE = (64, 64)
 
     def __init__(self):
-        config_array = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_zw.json'), 'rt'))
+        config_array = json.load(open(os.path.join(os.path.dirname(__file__), '../config_files/config_array_zv.json'), 'rt'))
         super(ZWUsbSensorDriverWithValidation, self).__init__(self.SENSOR_SHAPE,
                                                 config_array)
 
