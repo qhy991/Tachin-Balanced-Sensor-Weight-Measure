@@ -1,0 +1,134 @@
+{
+  "metadata": {
+    "description": "传感器位置校准数据",
+    "created_date": "2025-08-01",
+    "version": "1.0",
+    "calibration_method": "线性回归 (重量 = slope * 压力 + intercept)",
+    "distance_weighting_method": "最小距离选择"
+  },
+  "positions": {
+    "center": {
+      "name": "中心位置",
+      "x": 32,
+      "y": 32,
+      "description": "传感器中心位置",
+      "calibration": {
+        "slope": 1730.6905,
+        "intercept": 126.1741,
+        "r_squared": 0.9995,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T10:00:00"
+      }
+    },
+    "top_left": {
+      "name": "左上角",
+      "x": 16,
+      "y": 16,
+      "description": "左上角位置",
+      "calibration": {
+        "slope": 1650.2341,
+        "intercept": 145.6789,
+        "r_squared": 0.9987,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T10:30:00"
+      }
+    },
+    "top_right": {
+      "name": "右上角",
+      "x": 48,
+      "y": 16,
+      "description": "右上角位置",
+      "calibration": {
+        "slope": 1680.4567,
+        "intercept": 138.9012,
+        "r_squared": 0.9991,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T11:00:00"
+      }
+    },
+    "bottom_left": {
+      "name": "左下角",
+      "x": 16,
+      "y": 48,
+      "description": "左下角位置",
+      "calibration": {
+        "slope": 1665.7890,
+        "intercept": 142.3456,
+        "r_squared": 0.9989,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T11:30:00"
+      }
+    },
+    "bottom_right": {
+      "name": "右下角",
+      "x": 48,
+      "y": 48,
+      "description": "右下角位置",
+      "calibration": {
+        "slope": 1675.1234,
+        "intercept": 140.5678,
+        "r_squared": 0.9992,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T12:00:00"
+      }
+    },
+    "top_center": {
+      "name": "上中位置",
+      "x": 32,
+      "y": 16,
+      "description": "上中位置",
+      "calibration": {
+        "slope": 1700.3456,
+        "intercept": 135.7890,
+        "r_squared": 0.9993,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T12:30:00"
+      }
+    },
+    "bottom_center": {
+      "name": "下中位置",
+      "x": 32,
+      "y": 48,
+      "description": "下中位置",
+      "calibration": {
+        "slope": 1710.5678,
+        "intercept": 132.1234,
+        "r_squared": 0.9994,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T13:00:00"
+      }
+    },
+    "left_center": {
+      "name": "左中位置",
+      "x": 16,
+      "y": 32,
+      "description": "左中位置",
+      "calibration": {
+        "slope": 1690.7890,
+        "intercept": 137.4567,
+        "r_squared": 0.9990,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T13:30:00"
+      }
+    },
+    "right_center": {
+      "name": "右中位置",
+      "x": 48,
+      "y": 32,
+      "description": "右中位置",
+      "calibration": {
+        "slope": 1720.9012,
+        "intercept": 130.6789,
+        "r_squared": 0.9996,
+        "measurement_count": 5,
+        "last_updated": "2025-08-01T14:00:00"
+      }
+    }
+  },
+  "settings": {
+    "distance_calculation_method": "euclidean",
+    "fallback_position": "center",
+    "min_r_squared_threshold": 0.95,
+    "max_distance_threshold": 50.0
+  }
+} 

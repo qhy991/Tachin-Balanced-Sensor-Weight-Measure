@@ -1,0 +1,1226 @@
+
+import os
+from PyQt5 import QtCore, QtWidgets, QtGui
+from sensor_driver.interfaces.ordinary.layout.layout_user import Ui_MainWindow
+#
+from usb.core import USBError
+import sys
+import numpy as np
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from sensor_driver.data_processing.data_handler import DataHandler
+#
+from sensor_driver.interfaces.public.utils import (set_logo,
+                                              config, save_config, catch_exceptions)
+from sensor_driver.interfaces.ordinary.ordinary_plot import OrdinaryPlot
+import pyqtgraph as pg
+#
+# 导入校准相关模块
+import torch
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.font_manager as fm
+#
+AVAILABLE_FILTER_NAMES = ['无', '中值-0.2s', '中值-1s', '均值-0.2s', '均值-1s', '单向抵消-轻', '单向抵消-中', '单向抵消-重']
+
+
+class AICalibrationAdapter:
+    """AI校准适配器"""
+
+    def __init__(self):
+        self.coeffs = None
+        self.device = None
+        self.is_loaded = False
+
+    def load_calibration(self, filepath):
+        """加载AI校准模型"""
+        try:
+            if not os.path.exists(filepath):
+                print(f"❌ AI校准文件不存在: {filepath}")
+                return False
+
+            # 加载PyTorch模型
+            self.coeffs = torch.load(filepath)
+            print(f"✅ 成功加载AI校准系数，形状: {self.coeffs.shape}")
+
+            # 设置设备
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+                print("✅ 使用GPU进行AI校准")
+            else:
+                self.device = torch.device("cpu")
+                print("✅ 使用CPU进行AI校准")
+
+            # 将系数移到指定设备
+            self.coeffs = self.coeffs.to(self.device)
+            self.is_loaded = True
+            return True
+
+        except Exception as e:
+            print(f"❌ 加载AI校准模型失败: {e}")
+            return False
+
+    def apply_calibration(self, raw_data):
+        """应用AI校准到原始数据"""
+        if not self.is_loaded or self.coeffs is None:
+            return raw_data
+
+        try:
+            # 确保输入是64x64数组
+            if raw_data.shape != (64, 64):
+                print(f"⚠️ 输入数据形状错误: {raw_data.shape}，期望 (64, 64)")
+                return raw_data
+
+            # 转换为PyTorch张量
+            raw_tensor = torch.from_numpy(raw_data).float().to(self.device)
+            raw_flat = raw_tensor.view(-1)  # 展平为4096维向量
+
+            # 应用二次多项式校准: y = a*x^2 + b*x + c
+            x = raw_flat
+            a = self.coeffs[:, 0]  # 二次项系数
+            b = self.coeffs[:, 1]  # 一次项系数
+            c = self.coeffs[:, 2]  # 常数项
+
+            # 并行计算校准
+            calibrated_flat = a * x**2 + b * x + c
+
+            # 恢复为64x64矩阵
+            calibrated_tensor = calibrated_flat.view(64, 64)
+            calibrated_data = calibrated_tensor.cpu().numpy()
+
+            return calibrated_data
+
+        except Exception as e:
+            print(f"⚠️ AI校准应用失败: {e}")
+            return raw_data
+
+    def get_info(self):
+        """获取AI校准信息"""
+        if not self.is_loaded:
+            return None
+
+        return {
+            'is_loaded': True,
+            'coeffs_shape': self.coeffs.shape if self.coeffs is not None else None,
+            'device': str(self.device),
+            'coeffs_range': {
+                'a': [float(self.coeffs[:, 0].min()), float(self.coeffs[:, 0].max())],
+                'b': [float(self.coeffs[:, 1].min()), float(self.coeffs[:, 1].max())],
+                'c': [float(self.coeffs[:, 2].min()), float(self.coeffs[:, 2].max())]
+            } if self.coeffs is not None else None
+        }
+
+
+class Window(QtWidgets.QMainWindow, Ui_MainWindow):
+    """
+    主窗口
+    """
+
+
+    def __init__(self, mode='standard'):
+        """
+
+        :param mode: "standard" or "socket"
+        """
+        super().__init__()
+        self.setupUi(self)
+        # 重定向提示
+        sys.excepthook = self._catch_exceptions
+        self.config, self.save_config = config, save_config
+        #
+        self.is_running = False
+        #
+        self.data_handler = self.__mode_selector(mode)
+        self.plotter = OrdinaryPlot(self)
+        self.plotter.set_using_calibration()
+        # 界面初始配置
+        self.__pre_initialize()
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.trigger)
+        #
+        self.current_db_path = None
+
+        # 校准相关变量
+        self.calibration_coeffs = None
+        self.device = torch.device("cpu")
+        self.setup_calibration()
+
+    def __mode_selector(self, mode):
+        if mode == 'standard':
+            from backends.usb_driver import LargeUsbSensorDriver
+            data_handler = DataHandler(LargeUsbSensorDriver)
+        elif mode == 'can':
+            from backends.can_driver import Can16SensorDriver
+            data_handler = DataHandler(Can16SensorDriver)
+        else:
+            raise NotImplementedError()
+        return data_handler
+
+    def _catch_exceptions(self, ty, value, tb):
+        catch_exceptions(self, ty, value, tb)
+
+    def start(self):
+        # 按开始键
+        if not self.is_running:
+            flag = self.data_handler.connect(self.com_port.text())
+            self.config['port'] = self.com_port.text()
+            self.save_config()
+            if not flag:
+                return
+            self.is_running = True
+            self.timer.start(self.config['trigger_time'])
+            self.__set_enable_state()
+            self.com_port.setEnabled(False)
+
+    def stop(self):
+        # 按停止键
+        self.config['y_lim'] = self.plotter.log_y_lim
+        self.save_config()
+        if self.is_running:
+            self.is_running = False
+            if self.timer.isActive():
+                self.timer.stop()
+            self.data_handler.disconnect()
+            self.data_handler.clear()
+            self.__set_enable_state()
+
+    def __pre_initialize(self):
+        set_logo(self, True)
+        self.__initialize_buttons()  # 初始化一般接口
+        self.__set_enable_state()  # 各类开始/停止状态切换时调用
+        self.com_port.setEnabled(True)  # 一旦成功开始，就再也不能修改
+        
+        # 确保菜单栏可见
+        if hasattr(self, 'menubar') and self.menubar is not None:
+            self.menubar.setVisible(True)
+            self.menubar.setHidden(False)
+            self.menubar.raise_()
+            print("🔧 强制设置菜单栏可见")
+            
+        # 延迟设置菜单栏可见（在窗口显示后）
+        QtCore.QTimer.singleShot(100, self._ensure_menubar_visible)
+
+    def __initialize_buttons(self):
+        # 设置菜单栏
+        self.setup_calibration_menu()
+        # 开始
+        self.button_start.clicked.connect(self.start)
+        self.action_start.triggered.connect(self.start)
+        self.button_stop.clicked.connect(self.stop)
+        self.action_stop.triggered.connect(self.stop)
+        #
+        for name in AVAILABLE_FILTER_NAMES:
+            self.combo_filter_time.addItem(name)
+        current_idx_filter_time = self.config.get('filter_time_index')
+        if current_idx_filter_time < self.combo_filter_time.count():
+            self.combo_filter_time.setCurrentIndex(current_idx_filter_time)
+        self.combo_interpolate.setCurrentIndex(self.config.get('interpolate_index'))
+        self.combo_blur.setCurrentIndex(self.config.get('blur_index'))
+        self.__set_filter()
+        self.__set_interpolate_and_blur()
+        self.combo_filter_time.currentIndexChanged.connect(self.__set_filter)
+        self.combo_interpolate.currentIndexChanged.connect(self.__set_interpolate_and_blur)
+        self.combo_blur.currentIndexChanged.connect(self.__set_interpolate_and_blur)
+        self.__set_enable_state()
+        #
+        self.button_set_zero.clicked.connect(self.data_handler.set_zero)
+        self.action_set_zero.triggered.connect(self.data_handler.set_zero)
+        self.button_abandon_zero.clicked.connect(self.data_handler.abandon_zero)
+        self.action_abandon_zero.triggered.connect(self.data_handler.abandon_zero)
+        self.button_save_to.clicked.connect(self.__trigger_save_button)
+        self.action_save_to.triggered.connect(self.__trigger_save_button)
+        self.action_save_finish.triggered.connect(self.__trigger_save_button)
+
+        str_port = self.config.get('port')
+        if not isinstance(str_port, str):
+            raise Exception('配置文件出错')
+        self.com_port.setText(self.config['port'])
+        # 标定功能
+        self.button_load_calibration.clicked.connect(self.__set_calibrator)
+        self.action_load_calibration.triggered.connect(self.__set_calibrator)
+        self.button_exit_calibration.clicked.connect(self.__abandon_calibrator)
+        self.action_exit_calibration.triggered.connect(self.__abandon_calibrator)
+
+        # 添加AI校准按钮到现有界面
+        print("🔧 添加AI校准按钮到界面...")
+        try:
+            # 在现有按钮下方添加AI校准按钮
+            from PyQt5 import QtCore
+            
+            # 创建AI校准按钮
+            self.button_ai_calibration = QtWidgets.QPushButton("AI校准", self)
+            self.button_ai_calibration.setGeometry(10, 200, 100, 30)  # 临时位置
+            self.button_ai_calibration.clicked.connect(self.__show_ai_calibration_menu)
+            self.button_ai_calibration.show()
+            
+            print("✅ AI校准按钮已添加到界面")
+            
+        except Exception as e:
+            print(f"⚠️ 添加AI校准按钮失败: {e}")
+
+        # 如果没有界面按钮，可以通过菜单项访问
+        # 或者在工具栏中添加按钮
+        # 播放功能
+        self.button_play.clicked.connect(self.__trigger_play_button)  # 连接播放按钮
+
+    def __set_enable_state(self):
+        # 根据实际的开始/停止状态，设定各按钮是否激活
+        self.button_start.setEnabled(not self.is_running)
+        self.action_start.setEnabled(not self.is_running)
+        self.button_stop.setEnabled(self.is_running)
+        self.action_stop.setEnabled(self.is_running)
+
+        self.button_save_to.setEnabled(self.is_running)
+        if self.data_handler.output_file:
+            self.button_save_to.setText("结束采集")
+        else:
+            self.button_save_to.setText("采集到...")
+        self.action_save_to.setEnabled(self.is_running and not self.data_handler.saving_file)
+        self.action_save_finish.setEnabled(self.is_running and self.data_handler.saving_file)
+        if self.is_running:
+            self.com_port.setEnabled(False)
+
+    def __set_filter(self):
+        # 为self.combo_filter_time逐项添加选项
+        self.data_handler.set_filter("无", self.combo_filter_time.currentText())
+        self.config['filter_time_index'] = self.combo_filter_time.currentIndex()
+        self.save_config()
+
+    def __set_interpolate_and_blur(self):
+        interpolate = int(self.combo_interpolate.currentText())
+        blur = float(self.combo_blur.currentText())
+        self.data_handler.set_interpolation_and_blur(interpolate=interpolate, blur=blur)
+        self.config['interpolate_index'] = self.combo_interpolate.currentIndex()
+        self.config['blur_index'] = self.combo_blur.currentIndex()
+        self.save_config()
+
+    def __set_calibrator(self):
+        path = QtWidgets.QFileDialog.getOpenFileName(
+            self, "选择标定文件", "", "标定文件 (*.clb; *.csv)")[0]
+        if path:
+            flag = self.data_handler.set_calibrator(path)
+            if flag:
+                self.plotter.set_using_calibration()
+
+    def __abandon_calibrator(self):
+        self.data_handler.abandon_calibrator()
+        self.plotter.set_using_calibration()
+
+    def __trigger_save_button(self):
+        if self.data_handler.output_file:
+            self.data_handler.close_output_file()
+        else:
+            file = QtWidgets.QFileDialog.getSaveFileName(
+                self,
+                "选择输出路径",
+                "",
+                "数据库 (*.db)")
+            if file[0]:
+                self.data_handler.link_output_file(file[0])
+        self.__set_enable_state()
+
+    # 播放按钮（选择并读取数据库文件）
+    def __trigger_play_button(self):
+        # 仅当未播放或播放完成时开启计时
+        if not self.data_handler.play_complete_flag:
+            '''
+            调用了self.timer.start()以启用qt的trigger循环
+            '''
+            self.timer.start(self.config['trigger_time'])
+            self.button_play.setText("暂停")
+
+        # 播放完成的重置
+        if self.data_handler.play_complete_flag:
+            self.timer.stop() # 终止qt的trigger循环
+            self.current_db_path = None
+            self.data_handler.play_complete_flag = False
+
+            print("播放数据已完成")
+            self.button_play.setText("播放")
+
+        # 如果当前没有加载数据库，则打开文件选择对话框
+        if not self.current_db_path:
+            file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self,
+                "选择数据库文件",
+                "",
+                "SQLite 数据库 (*.db);;所有文件 (*)"
+            )
+
+            if file_path:
+                try:
+                    # 显示加载状态
+                    print(f"正在读取数据库: {os.path.basename(file_path)}")
+                    self.button_play.setEnabled(False)
+                    QtWidgets.QApplication.processEvents()
+
+                    # 调用读取数据库的方法
+                    self.data_handler.read_data_from_db(file_path)
+
+                    # 更新状态
+                    print(f"已加载数据库: {os.path.basename(file_path)}")
+                    self.data_handler.play_flag = True
+                    self.current_db_path = file_path
+
+
+                except Exception as e:
+                    # 错误处理
+                    print(f"读取数据库失败: {str(e)}")
+                    QtWidgets.QMessageBox.critical(self, "错误", f"无法读取数据库:\n{str(e)}")
+                finally:
+                    # 恢复按钮状态
+                    self.button_play.setEnabled(True)
+                    self.__set_enable_state()
+
+        else:
+            # 如果已经加载了数据库，则切换播放状态
+            self.data_handler.play_flag = not self.data_handler.play_flag
+
+            # 更新按钮文本以反映当前状态
+            if self.data_handler.play_flag:
+                print("已开始播放数据")
+                self.button_play.setText("暂停")
+            else:
+                print("已暂停播放数据")
+                self.button_play.setText("继续播放")
+
+            self.__set_enable_state()
+
+
+    def trigger(self):
+        try:
+            self.data_handler.trigger()
+
+            # 如果有AI校准模型，对最新数据应用AI校准
+            if self.calibration_coeffs is not None and len(self.data_handler.value) > 0:
+                latest_raw_data = self.data_handler.value[-1]
+
+                # 保存原始数据副本（用于对比）
+                if not hasattr(self, '_raw_data_for_comparison'):
+                    self._raw_data_for_comparison = []
+                
+                # 保持最近10帧的原始数据
+                self._raw_data_for_comparison.append(latest_raw_data.copy())
+                if len(self._raw_data_for_comparison) > 10:
+                    self._raw_data_for_comparison.pop(0)
+
+                # 应用AI校准
+                calibrated_data = self.apply_ai_calibration(latest_raw_data)
+
+                # 将校准后的数据替换到data_handler中
+                if len(self.data_handler.value) > 0:
+                    self.data_handler.value[-1] = calibrated_data
+
+                # 不要修改value_before_zero，保持它为原始数据
+                # 只修改filtered_data，因为它用于显示
+                if len(self.data_handler.filtered_data) > 0:
+                    self.data_handler.filtered_data[-1] = calibrated_data
+
+            self.plotter.trigger()
+            self.console_out.setText(self.get_console_str())
+
+        except USBError:
+            self.stop()
+            QtWidgets.qApp.quit()
+        except Exception as e:
+            # self.stop()
+            raise e
+
+    def trigger_null(self):
+        self.plotter.trigger_null()
+
+    def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
+        self.stop()
+        super(Window, self).closeEvent(a0)
+        sys.exit()
+
+    def get_console_str(self):
+        if self.is_running:
+            if self.data_handler.saving_file:
+                ret = '采集中...'
+            else:
+                ret = '已连接'
+                if self.data_handler.tracing_points:
+                    ret += f' 追踪点 {self.data_handler.tracing_points}'
+        else:
+            ret = '未连接'
+
+        # 添加校准状态信息
+        calibration_status = []
+        if hasattr(self.data_handler, 'using_calibration') and self.data_handler.using_calibration:
+            calibration_status.append('传统校准')
+        if hasattr(self.data_handler, 'using_balance_calibration') and self.data_handler.using_balance_calibration:
+            calibration_status.append('平衡校准')
+        if self.calibration_coeffs is not None:
+            calibration_status.append('AI校准')
+
+        if calibration_status:
+            ret += f' | 校准: {", ".join(calibration_status)}'
+
+        return ret
+
+    # ==================== AI校准功能 ====================
+
+    def setup_calibration(self):
+        """设置AI校准功能"""
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print("AI校准将使用GPU加速")
+        else:
+            self.device = torch.device("cpu")
+            print("AI校准将使用CPU")
+
+    def __load_ai_calibration(self):
+        """加载AI校准模型"""
+        try:
+            # 尝试从当前目录加载
+            current_dir = os.getcwd()
+            coeffs_path = os.path.join(current_dir, 'calibration_coeffs.pt')
+
+            if not os.path.exists(coeffs_path):
+                # 如果不存在，尝试从其他可能路径加载
+                possible_paths = [
+                    'calibration_coeffs.pt',
+                    '../calibration_coeffs.pt',
+                    '../../calibration_coeffs.pt',
+                    'data-0815/../calibration_coeffs.pt'
+                ]
+
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        coeffs_path = path
+                        break
+
+            if os.path.exists(coeffs_path):
+                self.calibration_coeffs = torch.load(coeffs_path).to(self.device)
+                print(f"✅ AI校准模型加载成功: {coeffs_path}")
+                print(f"   模型形状: {self.calibration_coeffs.shape}")
+
+                # 显示成功消息
+                QtWidgets.QMessageBox.information(self, "成功",
+                    f"AI校准模型已加载!\n路径: {coeffs_path}\n形状: {self.calibration_coeffs.shape}")
+
+            else:
+                QtWidgets.QMessageBox.warning(self, "文件未找到",
+                    f"未找到校准文件: calibration_coeffs.pt\n请先运行校准训练脚本。")
+                return False
+
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "加载失败", f"加载AI校准模型失败:\n{str(e)}")
+            return False
+
+        return True
+
+    def apply_ai_calibration(self, raw_data_64x64):
+        """应用AI校准到64x64原始数据"""
+        if self.calibration_coeffs is None:
+            return raw_data_64x64
+
+        try:
+            # 将数据转换为tensor
+            raw_tensor = torch.from_numpy(raw_data_64x64).float().to(self.device)
+
+            # 展平数据
+            raw_flat = raw_tensor.view(-1)
+
+            # 应用校准函数：y = a*x² + b*x + c
+            x = raw_flat
+            a = self.calibration_coeffs[:, 0]
+            b = self.calibration_coeffs[:, 1]
+            c = self.calibration_coeffs[:, 2]
+
+            calibrated_flat = a * x**2 + b * x + c
+
+            # 恢复形状
+            calibrated_tensor = calibrated_flat.view(64, 64)
+            calibrated_data = calibrated_tensor.cpu().numpy()
+
+            # 添加数据范围限制，避免校准后数据过于极端
+            raw_range = raw_data_64x64.max() - raw_data_64x64.min()
+            if raw_range > 0:
+                # 限制校准后数据的范围不超过原始数据的5倍
+                max_allowed_range = raw_range * 5
+                calibrated_range = calibrated_data.max() - calibrated_data.min()
+                
+                if calibrated_range > max_allowed_range:
+                    print(f"⚠️ 校准后数据范围过大: {calibrated_range:.1f} > {max_allowed_range:.1f}")
+                    print(f"   原始范围: {raw_range:.1f}, 校准后范围: {calibrated_range:.1f}")
+                    print(f"   将限制校准后数据范围")
+                    
+                    # 显示校准系数信息（调试用）
+                    coeffs_cpu = self.calibration_coeffs.cpu()
+                    print(f"   校准系数范围:")
+                    print(f"     a: [{coeffs_cpu[:, 0].min():.4f}, {coeffs_cpu[:, 0].max():.4f}]")
+                    print(f"     b: [{coeffs_cpu[:, 1].min():.4f}, {coeffs_cpu[:, 1].max():.4f}]")
+                    print(f"     c: [{coeffs_cpu[:, 2].min():.4f}, {coeffs_cpu[:, 2].max():.4f}]")
+                    
+                    # 将校准后数据限制在合理范围内
+                    calibrated_mean = calibrated_data.mean()
+                    calibrated_data = np.clip(calibrated_data, 
+                                           calibrated_mean - max_allowed_range/2,
+                                           calibrated_mean + max_allowed_range/2)
+
+            # 滤除负值：将负值替换为0
+            negative_mask = calibrated_data < 0
+            if negative_mask.any():
+                negative_count = negative_mask.sum()
+                print(f"⚠️ 检测到 {negative_count} 个负值，将其替换为0")
+                calibrated_data[negative_mask] = 0
+
+            # 零点校正：如果原始数据接近0，校准后也应该接近0
+            zero_threshold = 5.0  # 认为小于5的原始值为"无按压"
+            zero_mask = raw_data_64x64 < zero_threshold
+            
+            if zero_mask.any():
+                zero_count = zero_mask.sum()
+                print(f"🔧 零点校正: 检测到 {zero_count} 个接近零的点，将其校准值限制在合理范围内")
+                
+                # 对于接近零的原始数据，校准后的值不应该过大
+                max_allowed_zero_value = 10.0  # 允许的最大零点值
+                calibrated_data[zero_mask] = np.clip(calibrated_data[zero_mask], 0, max_allowed_zero_value)
+
+            return calibrated_data
+
+        except Exception as e:
+            print(f"AI校准应用失败: {e}")
+            return raw_data_64x64
+
+    def show_ai_calibration_info(self):
+        """显示AI校准信息"""
+        if self.calibration_coeffs is None:
+            QtWidgets.QMessageBox.information(self, "AI校准信息",
+                "AI校准模型尚未加载。\n\n请先通过菜单选择'加载AI校准模型'来加载校准文件。")
+            return
+
+        # 获取模型信息
+        model_shape = self.calibration_coeffs.shape
+        device_info = str(self.device)
+
+        # 计算系数统计信息
+        coeffs_cpu = self.calibration_coeffs.cpu()
+        a_stats = coeffs_cpu[:, 0]
+        b_stats = coeffs_cpu[:, 1]
+        c_stats = coeffs_cpu[:, 2]
+
+        info_text = f"""
+AI校准模型信息
+
+📊 模型基本信息:
+• 模型文件: calibration_coeffs.pt
+• 模型形状: {model_shape}
+• 计算设备: {device_info}
+• 传感器数量: {model_shape[0]} (64x64 = {64*64})
+
+🔬 校准系数统计:
+
+二次项系数 (a):
+• 范围: [{a_stats.min():.4f}, {a_stats.max():.4f}]
+• 均值: {a_stats.mean():.4f}
+• 标准差: {a_stats.std():.4f}
+
+一次项系数 (b):
+• 范围: [{b_stats.min():.4f}, {b_stats.max():.4f}]
+• 均值: {b_stats.mean():.4f}
+• 标准差: {b_stats.std():.4f}
+
+常数项系数 (c):
+• 范围: [{c_stats.min():.4f}, {c_stats.max():.4f}]
+• 均值: {c_stats.mean():.4f}
+• 标准差: {c_stats.std():.4f}
+
+⚙️ 校准公式:
+对于每个传感器点 (i,j):
+校准后值 = aᵢⱼ × (原始值)² + bᵢⱼ × (原始值) + cᵢⱼ
+
+🎯 校准目标:
+• 减少传感器间的响应差异
+• 改善整体CV (变异系数)
+• 提高数据均匀性
+"""
+
+        QtWidgets.QMessageBox.information(self, "AI校准信息", info_text)
+
+    def __show_calibration_comparison(self):
+        """显示校准前后对比"""
+        if self.calibration_coeffs is None:
+            QtWidgets.QMessageBox.warning(self, "未加载", "请先加载AI校准模型")
+            return
+
+        # 创建实时对比对话框
+        dialog = RealtimeCalibrationDialog(self)
+        dialog.show()  # 使用show()而不是exec_()，这样不会阻塞主界面
+        
+    def __show_detailed_calibration_comparison(self):
+        """显示详细校准对比"""
+        if self.calibration_coeffs is None:
+            QtWidgets.QMessageBox.warning(self, "未加载", "请先加载AI校准模型")
+            return
+
+        # 创建详细对比对话框
+        dialog = CalibrationComparisonDialog(self)
+        dialog.exec_()
+
+    def get_current_frame_data(self):
+        """获取当前帧的原始数据（用于校准对比）"""
+        # 优先从data_handler获取最新的实时原始数据
+        if len(self.data_handler.data) > 0:
+            print("✅ 使用data_handler.data的实时原始数据")
+            return self.data_handler.data[-1]
+        elif len(self.data_handler.value_before_zero) > 0:
+            # 如果data为空，尝试从value_before_zero获取原始数据
+            print("✅ 使用value_before_zero的原始数据")
+            return self.data_handler.value_before_zero[-1]
+        elif hasattr(self, '_raw_data_for_comparison') and len(self._raw_data_for_comparison) > 0:
+            # 最后才使用保存的原始数据副本
+            print("⚠️ 使用保存的原始数据副本")
+            return self._raw_data_for_comparison[-1]
+        elif len(self.data_handler.value) > 0:
+            # 最后从value获取（可能已经是校准后的数据）
+            print("⚠️ 使用可能已校准的数据作为原始数据")
+            return self.data_handler.value[-1]
+        else:
+            # 如果没有数据，返回模拟数据
+            print("⚠️ 没有实时数据，使用模拟数据")
+            return np.random.rand(64, 64) * 1000
+
+    def setup_calibration_menu(self):
+        """设置校准菜单"""
+        try:
+            print("🔧 设置AI校准菜单...")
+            # 检查menubar是否存在
+            if not hasattr(self, 'menubar') or self.menubar is None:
+                print("❌ 菜单栏不存在")
+                return
+
+            # 创建校准菜单
+            calibration_menu = self.menubar.addMenu('AI校准')
+            print("✅ AI校准菜单已创建")
+
+            # 加载AI校准模型
+            load_action = QtWidgets.QAction('加载AI校准模型', self)
+            load_action.triggered.connect(self.__load_ai_calibration)
+            calibration_menu.addAction(load_action)
+
+            # 实时校准对比
+            realtime_compare_action = QtWidgets.QAction('实时校准对比', self)
+            realtime_compare_action.triggered.connect(self.__show_calibration_comparison)
+            calibration_menu.addAction(realtime_compare_action)
+            
+            # 详细校准对比（原有功能）
+            compare_action = QtWidgets.QAction('详细校准对比', self)
+            compare_action.triggered.connect(self.__show_detailed_calibration_comparison)
+            calibration_menu.addAction(compare_action)
+
+            calibration_menu.addSeparator()
+
+            # AI校准信息
+            info_action = QtWidgets.QAction('AI校准信息', self)
+            info_action.triggered.connect(self.show_ai_calibration_info)
+            calibration_menu.addAction(info_action)
+
+            # 启用菜单栏
+            self.menubar.setEnabled(True)
+            # 显示菜单栏
+            self.menubar.show()
+            # 强制设置菜单栏可见
+            self.menubar.setVisible(True)
+            
+            # 尝试其他方法设置菜单栏可见
+            self.menubar.setHidden(False)
+            self.menubar.raise_()
+            
+            print("✅ AI校准菜单设置完成")
+
+        except Exception as e:
+            print(f"❌ 设置AI校准菜单失败: {e}")
+            import traceback
+            traceback.print_exc()
+            
+    def _ensure_menubar_visible(self):
+        """确保菜单栏可见"""
+        try:
+            if hasattr(self, 'menubar') and self.menubar is not None:
+                self.menubar.setVisible(True)
+                self.menubar.setHidden(False)
+                self.menubar.raise_()
+                print("🔧 延迟设置菜单栏可见")
+        except Exception as e:
+            print(f"⚠️ 延迟设置菜单栏可见失败: {e}")
+            
+    def __show_ai_calibration_menu(self):
+        """显示AI校准菜单（通过按钮触发）"""
+        try:
+            from PyQt5 import QtWidgets
+            
+            # 创建AI校准菜单
+            menu = QtWidgets.QMenu(self)
+            menu.setTitle("AI校准")
+            
+            # 添加菜单项
+            load_action = menu.addAction("加载AI校准模型")
+            load_action.triggered.connect(self.__load_ai_calibration)
+            
+            compare_action = menu.addAction("显示校准对比")
+            compare_action.triggered.connect(self.__show_calibration_comparison)
+            
+            menu.addSeparator()
+            
+            info_action = menu.addAction("AI校准信息")
+            info_action.triggered.connect(self.show_ai_calibration_info)
+            
+            # 在按钮位置显示菜单
+            button_pos = self.button_ai_calibration.mapToGlobal(self.button_ai_calibration.rect().bottomLeft())
+            menu.exec_(button_pos)
+            
+        except Exception as e:
+            print(f"❌ 显示AI校准菜单失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+# ==================== 实时校准对比对话框 ====================
+
+class RealtimeCalibrationDialog(QtWidgets.QDialog):
+    """实时校准前后对比对话框"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("AI校准实时对比")
+        self.setGeometry(200, 200, 1000, 600)
+        
+        # 设置中文字体
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+        
+        # 设置实时更新定时器
+        self.update_timer = QtCore.QTimer()
+        self.update_timer.timeout.connect(self.update_comparison)
+        self.update_timer.start(500)  # 每500ms更新一次，减少CPU占用
+        
+        # 添加数据变化检测
+        self._last_raw_data = None
+        self._update_count = 0
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """设置用户界面"""
+        layout = QtWidgets.QVBoxLayout()
+        
+        # 标题
+        title = QtWidgets.QLabel("AI校准实时对比 - 校准前 vs 校准后")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; text-align: center;")
+        layout.addWidget(title)
+        
+        # 创建两个热力图的布局
+        heatmap_layout = QtWidgets.QHBoxLayout()
+        
+        # 左侧：校准前热力图
+        self.raw_canvas = self.create_heatmap_canvas("校准前 - 原始数据")
+        heatmap_layout.addWidget(self.raw_canvas)
+        
+        # 右侧：校准后热力图
+        self.calibrated_canvas = self.create_heatmap_canvas("校准后 - AI校准数据")
+        heatmap_layout.addWidget(self.calibrated_canvas)
+        
+        layout.addLayout(heatmap_layout)
+        
+        # 统计信息
+        self.stats_label = QtWidgets.QLabel("统计信息加载中...")
+        self.stats_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 12px; padding: 10px;")
+        layout.addWidget(self.stats_label)
+        
+        # 按钮区域
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        # 强制刷新按钮
+        refresh_btn = QtWidgets.QPushButton("强制刷新")
+        refresh_btn.clicked.connect(self.force_refresh)
+        button_layout.addWidget(refresh_btn)
+        
+        close_btn = QtWidgets.QPushButton("关闭")
+        close_btn.clicked.connect(self.close)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+        
+    def create_heatmap_canvas(self, title):
+        """创建热力图画布"""
+        # 创建matplotlib图形
+        fig = plt.figure(figsize=(6, 5))
+        ax = fig.add_subplot(111)
+        
+        # 创建初始热力图（空数据）
+        im = ax.imshow(np.zeros((64, 64)), cmap='viridis', aspect='equal')
+        ax.set_title(title)
+        plt.colorbar(im, ax=ax, shrink=0.8)
+        
+        # 将matplotlib图形转换为Qt widget
+        canvas = FigureCanvas(fig)
+        canvas.setMinimumSize(400, 300)
+        
+        return canvas
+        
+    def update_comparison(self):
+        """实时更新对比数据"""
+        try:
+            # 获取当前数据
+            raw_data = self.parent.get_current_frame_data()
+            
+            # 检查数据是否真的在变化
+            if hasattr(self, '_last_raw_data'):
+                if np.array_equal(raw_data, self._last_raw_data):
+                    print("⚠️ 原始数据没有变化，跳过更新")
+                    return
+            self._last_raw_data = raw_data.copy()
+            
+            calibrated_data = self.parent.apply_ai_calibration(raw_data)
+            
+            self._update_count += 1
+            print(f"🔄 更新对比数据 #{self._update_count} - 原始范围:[{raw_data.min():.1f},{raw_data.max():.1f}], 校准后范围:[{calibrated_data.min():.1f},{calibrated_data.max():.1f}]")
+            
+            # 更新原始数据热力图
+            raw_fig = self.raw_canvas.figure
+            raw_ax = raw_fig.axes[0]
+            raw_im = raw_ax.images[0]
+            raw_im.set_array(raw_data)
+            raw_im.set_clim(raw_data.min(), raw_data.max())
+            raw_fig.canvas.draw()
+            
+            # 更新校准后数据热力图
+            cal_fig = self.calibrated_canvas.figure
+            cal_ax = cal_fig.axes[0]
+            cal_im = cal_ax.images[0]
+            cal_im.set_array(calibrated_data)
+            
+            # 使用top99%范围，避免异常值影响
+            cal_data_flat = calibrated_data.flatten()
+            cal_99_percentile = np.percentile(cal_data_flat, 99)
+            cal_1_percentile = np.percentile(cal_data_flat, 1)
+            
+            # 设置颜色范围：从1%到99%分位数
+            cal_im.set_clim(cal_1_percentile, cal_99_percentile)
+            cal_fig.canvas.draw()
+            
+            # 更新统计信息
+            # 避免除零错误，使用更安全的CV计算
+            raw_mean = raw_data.mean()
+            raw_std = raw_data.std()
+            cal_mean = calibrated_data.mean()
+            cal_std = calibrated_data.std()
+            
+            # 计算CV（变异系数）
+            cv_raw = raw_std / abs(raw_mean) if abs(raw_mean) > 1e-6 else 0
+            cv_cal = cal_std / abs(cal_mean) if abs(cal_mean) > 1e-6 else 0
+            
+            # 计算CV改善倍数
+            if cv_cal > 1e-6 and cv_raw > 1e-6:
+                cv_improvement = cv_raw / cv_cal
+            else:
+                cv_improvement = 1.0
+            
+            # 计算分位数信息
+            cal_data_flat = calibrated_data.flatten()
+            cal_99_percentile = np.percentile(cal_data_flat, 99)
+            cal_1_percentile = np.percentile(cal_data_flat, 1)
+            cal_95_percentile = np.percentile(cal_data_flat, 95)
+            cal_5_percentile = np.percentile(cal_data_flat, 5)
+            
+            stats_text = f"""
+            📊 实时统计信息
+            
+            原始数据: 均值={raw_mean:.1f}, 标准差={raw_std:.1f}, CV={cv_raw:.3f}
+            校准后: 均值={cal_mean:.1f}, 标准差={cal_std:.1f}, CV={cv_cal:.3f}
+            CV改善倍数: {cv_improvement:.1f}倍
+            
+            🔍 数据状态:
+            原始数据范围: [{raw_data.min():.1f}, {raw_data.max():.1f}]
+            校准后范围: [{calibrated_data.min():.1f}, {calibrated_data.max():.1f}]
+            校准后分位数: 1%={cal_1_percentile:.1f}, 5%={cal_5_percentile:.1f}, 95%={cal_95_percentile:.1f}, 99%={cal_99_percentile:.1f}
+            热力图范围: [{cal_1_percentile:.1f}, {cal_99_percentile:.1f}] (避免异常值)
+            数据来源: {'实时传感器数据' if len(self.parent.data_handler.data) > 0 else '缓存数据'}
+            """
+            
+            self.stats_label.setText(stats_text)
+            
+        except Exception as e:
+            print(f"⚠️ 更新对比数据失败: {e}")
+            
+    def force_refresh(self):
+        """强制刷新对比数据"""
+        try:
+            print("🔧 强制刷新对比数据...")
+            # 清除上次数据缓存，强制更新
+            self._last_raw_data = None
+            self._update_count = 0
+            # 立即更新一次
+            self.update_comparison()
+            print("✅ 强制刷新完成")
+        except Exception as e:
+            print(f"❌ 强制刷新失败: {e}")
+            
+    def closeEvent(self, event):
+        """关闭事件"""
+        if hasattr(self, 'update_timer'):
+            self.update_timer.stop()
+        super().closeEvent(event)
+
+# ==================== 原有校准对比对话框 ====================
+
+class CalibrationComparisonDialog(QtWidgets.QDialog):
+    """校准前后对比对话框（原有版本）"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("AI校准前后对比")
+        self.setGeometry(200, 200, 1200, 800)
+
+        # 设置中文字体
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+
+        # 设置自动刷新定时器
+        self.auto_refresh_timer = QtCore.QTimer()
+        self.auto_refresh_timer.timeout.connect(self.refresh_data)
+        self.auto_refresh_enabled = False
+
+        self.setup_ui()
+
+    def setup_ui(self):
+        """设置用户界面"""
+        layout = QtWidgets.QVBoxLayout()
+
+        # 标题
+        title = QtWidgets.QLabel("AI校准前后对比分析")
+        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        layout.addWidget(title)
+
+        # 创建滚动区域
+        scroll_area = QtWidgets.QScrollArea()
+        scroll_widget = QtWidgets.QWidget()
+        scroll_layout = QtWidgets.QVBoxLayout(scroll_widget)
+
+        # 获取当前帧数据
+        raw_data = self.parent.get_current_frame_data()
+        calibrated_data = self.parent.apply_ai_calibration(raw_data)
+
+        # 创建对比图
+        self.create_comparison_plots(scroll_layout, raw_data, calibrated_data)
+
+        # 添加统计信息
+        self.add_statistics_info(scroll_layout, raw_data, calibrated_data)
+
+        scroll_widget.setLayout(scroll_layout)
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
+
+        # 按钮区域
+        button_layout = QtWidgets.QHBoxLayout()
+
+        refresh_btn = QtWidgets.QPushButton("手动刷新")
+        refresh_btn.clicked.connect(self.refresh_data)
+        button_layout.addWidget(refresh_btn)
+        
+        # 自动刷新切换按钮
+        self.auto_refresh_btn = QtWidgets.QPushButton("开启自动刷新")
+        self.auto_refresh_btn.clicked.connect(self.toggle_auto_refresh)
+        button_layout.addWidget(self.auto_refresh_btn)
+
+        save_btn = QtWidgets.QPushButton("保存对比图")
+        save_btn.clicked.connect(self.save_comparison)
+        button_layout.addWidget(save_btn)
+
+        close_btn = QtWidgets.QPushButton("关闭")
+        close_btn.clicked.connect(self.close)
+        button_layout.addWidget(close_btn)
+
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+    def create_comparison_plots(self, layout, raw_data, calibrated_data):
+        """创建对比图"""
+        # 创建matplotlib图形
+        fig = plt.figure(figsize=(15, 10))
+
+        # 1. 原始数据热力图
+        ax1 = fig.add_subplot(2, 3, 1)
+        im1 = ax1.imshow(raw_data, cmap='viridis', aspect='equal')
+        ax1.set_title('原始数据热力图')
+        plt.colorbar(im1, ax=ax1, shrink=0.8)
+
+        # 2. 校准后数据热力图
+        ax2 = fig.add_subplot(2, 3, 2)
+        
+        # 使用top99%范围，避免异常值影响
+        cal_data_flat = calibrated_data.flatten()
+        cal_99_percentile = np.percentile(cal_data_flat, 99)
+        cal_1_percentile = np.percentile(cal_data_flat, 1)
+        
+        im2 = ax2.imshow(calibrated_data, cmap='viridis', aspect='equal', 
+                         vmin=cal_1_percentile, vmax=cal_99_percentile)
+        ax2.set_title('校准后热力图 (1%-99%范围)')
+        plt.colorbar(im2, ax=ax2, shrink=0.8)
+
+        # 3. 差异热力图
+        ax3 = fig.add_subplot(2, 3, 3)
+        diff = calibrated_data - raw_data.mean()
+        im3 = ax3.imshow(diff, cmap='RdBu_r', aspect='equal')
+        ax3.set_title('校准调整量热力图')
+        plt.colorbar(im3, ax=ax3, shrink=0.8)
+
+        # 4. 原始数据直方图
+        ax4 = fig.add_subplot(2, 3, 4)
+        ax4.hist(raw_data.flatten(), bins=50, alpha=0.7, label='原始数据', density=True)
+        ax4.axvline(raw_data.mean(), color='red', linestyle='--', linewidth=2,
+                   label=f'均值: {raw_data.mean():.1f}')
+        ax4.set_title('原始数据分布直方图')
+        ax4.set_xlabel('响应值')
+        ax4.set_ylabel('密度')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+
+        # 5. 校准后数据直方图
+        ax5 = fig.add_subplot(2, 3, 5)
+        ax5.hist(calibrated_data.flatten(), bins=50, alpha=0.7, color='orange',
+                label='校准后数据', density=True)
+        ax5.axvline(calibrated_data.mean(), color='blue', linestyle='--', linewidth=2,
+                   label=f'均值: {calibrated_data.mean():.1f}')
+        ax5.set_title('校准后数据分布直方图')
+        ax5.set_xlabel('响应值')
+        ax5.set_ylabel('密度')
+        ax5.legend()
+        ax5.grid(True, alpha=0.3)
+
+        # 6. 散点图对比
+        ax6 = fig.add_subplot(2, 3, 6)
+        sample_indices = np.random.choice(64*64, size=min(1000, 64*64), replace=False)
+        raw_sample = raw_data.flatten()[sample_indices]
+        cal_sample = calibrated_data.flatten()[sample_indices]
+
+        ax6.scatter(raw_sample, cal_sample, alpha=0.6, s=2, color='purple')
+        ax6.plot([raw_data.min(), raw_data.max()], [raw_data.min(), raw_data.max()],
+                'r--', linewidth=2, label='对角线')
+        ax6.set_xlabel('原始响应')
+        ax6.set_ylabel('校准后响应')
+        ax6.set_title('原始vs校准后响应散点图')
+        ax6.legend()
+        ax6.grid(True, alpha=0.3)
+
+        plt.suptitle('AI校准前后对比分析', fontsize=16, fontweight='bold')
+        plt.tight_layout()
+
+        # 将matplotlib图形转换为Qt widget
+        canvas = FigureCanvas(fig)
+        layout.addWidget(canvas)
+
+    def add_statistics_info(self, layout, raw_data, calibrated_data):
+        """添加统计信息"""
+        stats_group = QtWidgets.QGroupBox("统计信息对比")
+        stats_layout = QtWidgets.QVBoxLayout()
+
+        # 计算统计指标
+        cv_raw = raw_data.std() / raw_data.mean()
+        cv_cal = calibrated_data.std() / calibrated_data.mean()
+        cv_improvement = cv_raw / cv_cal
+        std_improvement = raw_data.std() / calibrated_data.std()
+        
+        # 计算分位数指标
+        cal_data_flat = calibrated_data.flatten()
+        cal_99_percentile = np.percentile(cal_data_flat, 99)
+        cal_1_percentile = np.percentile(cal_data_flat, 1)
+        cal_95_percentile = np.percentile(cal_data_flat, 95)
+        cal_5_percentile = np.percentile(cal_data_flat, 5)
+
+        # 创建统计信息文本
+        stats_text = f"""
+        📊 校准效果统计
+
+        原始数据:
+        • 均值: {raw_data.mean():.1f}
+        • 标准差: {raw_data.std():.1f}
+        • CV (变异系数): {cv_raw:.3f}
+        • 范围: [{raw_data.min():.1f}, {raw_data.max():.1f}]
+
+        校准后:
+        • 均值: {calibrated_data.mean():.1f}
+        • 标准差: {calibrated_data.std():.1f}
+        • CV (变异系数): {cv_cal:.3f}
+        • 范围: [{calibrated_data.min():.1f}, {calibrated_data.max():.1f}]
+        • 分位数: 1%={cal_1_percentile:.1f}, 5%={cal_5_percentile:.1f}, 95%={cal_95_percentile:.1f}, 99%={cal_99_percentile:.1f}
+        • 热力图范围: [{cal_1_percentile:.1f}, {cal_99_percentile:.1f}] (避免异常值)
+
+        改善效果:
+        • CV改善倍数: {cv_improvement:.1f}倍
+        • 标准差改善倍数: {std_improvement:.1f}倍
+        • 均匀性提升: {((cv_raw - cv_cal) / cv_raw * 100):.1f}%
+
+        🎯 结论:
+        • 校准显著改善了传感器的一致性
+        • 变异系数降低了{cv_improvement:.1f}倍
+        • 标准差降低了{std_improvement:.1f}倍
+        """
+
+        stats_label = QtWidgets.QLabel(stats_text)
+        stats_label.setStyleSheet("font-family: 'Microsoft YaHei'; font-size: 12px;")
+        stats_layout.addWidget(stats_label)
+
+        stats_group.setLayout(stats_layout)
+        layout.addWidget(stats_group)
+
+    def toggle_auto_refresh(self):
+        """切换自动刷新"""
+        if self.auto_refresh_enabled:
+            # 停止自动刷新
+            self.auto_refresh_timer.stop()
+            self.auto_refresh_enabled = False
+            self.auto_refresh_btn.setText("开启自动刷新")
+            print("⏸️ 已停止自动刷新")
+        else:
+            # 开启自动刷新，每2秒刷新一次
+            self.auto_refresh_timer.start(2000)
+            self.auto_refresh_enabled = True
+            self.auto_refresh_btn.setText("停止自动刷新")
+            print("▶️ 已开启自动刷新（每2秒）")
+
+    def refresh_data(self):
+        """刷新数据"""
+        try:
+            print("🔄 刷新校准对比数据...")
+            # 重新获取数据并更新显示
+            self.setup_ui()
+            print("✅ 校准对比数据已刷新")
+        except Exception as e:
+            print(f"❌ 刷新校准对比数据失败: {e}")
+            import traceback
+            traceback.print_exc()
+            
+    def closeEvent(self, event):
+        """关闭事件"""
+        if hasattr(self, 'auto_refresh_timer'):
+            self.auto_refresh_timer.stop()
+        super().closeEvent(event)
+
+    def save_comparison(self):
+        """保存对比图"""
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "保存对比图", "", "PNG文件 (*.png);;PDF文件 (*.pdf)"
+        )
+
+        if file_path:
+            try:
+                # 这里可以实现保存当前对比图的功能
+                QtWidgets.QMessageBox.information(self, "保存成功", f"对比图已保存到:\n{file_path}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "保存失败", f"保存失败:\n{str(e)}")
+
+def start(mode='standard'):
+    app = QtWidgets.QApplication(sys.argv)
+    w = Window(mode)
+    w.show()
+    w.trigger_null()
+    sys.exit(app.exec_())

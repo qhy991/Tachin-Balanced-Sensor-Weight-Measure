@@ -3,17 +3,252 @@ import warnings
 from collections import deque
 import numpy as np
 import atexit
-import data_processing.filters as preprocessing
-from data_processing.interpolation import Interpolation
+from . import filters as preprocessing
+from .interpolation import Interpolation
 import json
 import sqlite3
-from data_processing.convert_data import convert_db_to_csv
-from config import config
+from .convert_data import convert_db_to_csv
+from ..config import config
 import threading
-from data_processing.calibrate_adaptor import CalibrateAdaptor
-from data_processing.calibration.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
+from .calibrate_adaptor import CalibrateAdaptor
+from .calibration.sensor_calibrate import Algorithm, ManualDirectionLinearAlgorithm
 import time
-from data_processing.convert_data import extract_data, dataframe_to_numpy
+from .convert_data import extract_data, dataframe_to_numpy
+import torch
+
+# 添加对balance-sensor校准格式的支持
+class BalanceSensorCalibrationAdapter:
+    """适配balance-sensor校准格式的适配器"""
+    
+    def __init__(self):
+        self.calibration_data = None
+        self.calibration_map = None
+        self.coefficient = 1.0
+        self.bias = 0.0
+        self.is_loaded = False
+    
+    def load_calibration(self, filepath):
+        """加载balance-sensor格式的校准文件"""
+        try:
+            if filepath.endswith('.json'):
+                self._load_json_calibration(filepath)
+            elif filepath.endswith('.npy'):
+                self._load_numpy_calibration(filepath)
+            elif filepath.endswith('.csv'):
+                self._load_csv_calibration(filepath)
+            else:
+                raise ValueError(f"不支持的校准文件格式: {filepath}")
+            
+            self.is_loaded = True
+            print(f"✅ 已加载balance-sensor校准文件: {filepath}")
+            return True
+            
+        except Exception as e:
+            print(f"⚠️ 加载balance-sensor校准文件失败: {e}")
+            return False
+    
+    def _load_json_calibration(self, filepath):
+        """加载JSON格式校准文件"""
+        with open(filepath, 'r', encoding='utf-8') as f:
+            self.calibration_data = json.load(f)
+        
+        # 检查是否是position_calibration_data.json格式
+        if 'positions' in self.calibration_data:
+            # 这是position_calibration_data.json格式
+            positions = self.calibration_data['positions']
+            if 'center' in positions:
+                # 使用中心位置的校准参数
+                center_cal = positions['center']['calibration']
+                self.coefficient = float(center_cal['slope'])
+                self.bias = float(center_cal['intercept'])
+                print(f"✅ 从position_calibration_data.json加载校准参数:")
+                print(f"   - 系数 (slope): {self.coefficient}")
+                print(f"   - 偏置 (intercept): {self.bias}")
+            else:
+                # 如果没有中心位置，使用第一个可用位置
+                first_position = list(positions.values())[0]
+                if 'calibration' in first_position:
+                    cal = first_position['calibration']
+                    self.coefficient = float(cal['slope'])
+                    self.bias = float(cal['intercept'])
+                    print(f"✅ 从position_calibration_data.json加载校准参数 (使用{first_position['name']}):")
+                    print(f"   - 系数 (slope): {self.coefficient}")
+                    print(f"   - 偏置 (intercept): {self.bias}")
+        else:
+            # 标准格式
+            if 'calibration_map' in self.calibration_data:
+                self.calibration_map = np.array(self.calibration_data['calibration_map'])
+            
+            if 'coefficient' in self.calibration_data:
+                self.coefficient = float(self.calibration_data['coefficient'])
+            
+            if 'bias' in self.calibration_data:
+                self.bias = float(self.calibration_data['bias'])
+    
+    def _load_numpy_calibration(self, filepath):
+        """加载NumPy格式校准文件"""
+        data = np.load(filepath, allow_pickle=True)
+        
+        # 检查数据格式
+        if data.shape == (64, 64):
+            # 这是一个64x64的校准映射数组
+            self.calibration_map = data.astype(np.float32)
+            self.coefficient = 1.0  # 默认系数
+            self.bias = 0.0  # 默认偏置
+            print(f"✅ 从NumPy文件加载64x64校准映射:")
+            print(f"   - 映射形状: {self.calibration_map.shape}")
+            print(f"   - 映射均值: {np.mean(self.calibration_map):.4f}")
+            print(f"   - 映射范围: [{np.min(self.calibration_map):.4f}, {np.max(self.calibration_map):.4f}]")
+        elif isinstance(data, np.ndarray) and data.dtype == object:
+            # 这是一个包含字典的数组
+            data_dict = data.item()
+            self.calibration_data = data_dict
+            
+            if 'calibration_map' in data_dict:
+                self.calibration_map = data_dict['calibration_map']
+            
+            if 'coefficient' in data_dict:
+                self.coefficient = float(data_dict['coefficient'])
+            
+            if 'bias' in data_dict:
+                self.bias = float(data_dict['bias'])
+        else:
+            print(f"⚠️ 未知的NumPy文件格式: {data.shape}, {data.dtype}")
+            return False
+        
+        return True
+    
+    def _load_csv_calibration(self, filepath):
+        """加载CSV格式校准文件"""
+        # 简单的CSV格式支持，假设第一行是系数和偏置
+        data = np.loadtxt(filepath, delimiter=',', skiprows=1)
+        if len(data.shape) == 2:
+            self.calibration_map = data
+        else:
+            # 如果只有一行，假设是系数和偏置
+            if len(data) >= 2:
+                self.coefficient = float(data[0])
+                self.bias = float(data[1])
+    
+    def apply_calibration(self, raw_data):
+        """应用校准到原始数据"""
+        if not self.is_loaded:
+            return raw_data
+        
+        calibrated_data = raw_data.copy()
+        
+        # 应用校准映射（如果存在）
+        if self.calibration_map is not None and raw_data.shape == self.calibration_map.shape:
+            calibrated_data = raw_data * self.calibration_map
+        
+        # 应用线性校准：y = kx + b
+        calibrated_data = self.coefficient * calibrated_data + self.bias
+        
+        return calibrated_data
+    
+    def get_info(self):
+        """获取校准信息"""
+        if not self.is_loaded:
+            return None
+        
+        info = {
+            'is_loaded': True,
+            'coefficient': self.coefficient,
+            'bias': self.bias
+        }
+        
+        if self.calibration_map is not None:
+            info['calibration_map_shape'] = self.calibration_map.shape
+            info['calibration_map_mean'] = float(np.mean(self.calibration_map))
+        
+        return info
+
+class AICalibrationAdapter:
+    """AI校准适配器"""
+
+    def __init__(self):
+        self.coeffs = None
+        self.device = None
+        self.is_loaded = False
+
+    def load_calibration(self, filepath):
+        """加载AI校准模型"""
+        try:
+            if not os.path.exists(filepath):
+                print(f"❌ AI校准文件不存在: {filepath}")
+                return False
+
+            # 加载PyTorch模型
+            self.coeffs = torch.load(filepath)
+            print(f"✅ 成功加载AI校准系数，形状: {self.coeffs.shape}")
+
+            # 设置设备
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+                print("✅ 使用GPU进行AI校准")
+            else:
+                self.device = torch.device("cpu")
+                print("✅ 使用CPU进行AI校准")
+
+            # 将系数移到指定设备
+            self.coeffs = self.coeffs.to(self.device)
+            self.is_loaded = True
+            return True
+
+        except Exception as e:
+            print(f"❌ 加载AI校准模型失败: {e}")
+            return False
+
+    def apply_calibration(self, raw_data):
+        """应用AI校准到原始数据"""
+        if not self.is_loaded or self.coeffs is None:
+            return raw_data
+
+        try:
+            # 确保输入是64x64数组
+            if raw_data.shape != (64, 64):
+                print(f"⚠️ 输入数据形状错误: {raw_data.shape}，期望 (64, 64)")
+                return raw_data
+
+            # 转换为PyTorch张量
+            raw_tensor = torch.from_numpy(raw_data).float().to(self.device)
+            raw_flat = raw_tensor.view(-1)  # 展平为4096维向量
+
+            # 应用二次多项式校准: y = a*x^2 + b*x + c
+            x = raw_flat
+            a = self.coeffs[:, 0]  # 二次项系数
+            b = self.coeffs[:, 1]  # 一次项系数
+            c = self.coeffs[:, 2]  # 常数项
+
+            # 并行计算校准
+            calibrated_flat = a * x**2 + b * x + c
+
+            # 恢复为64x64矩阵
+            calibrated_tensor = calibrated_flat.view(64, 64)
+            calibrated_data = calibrated_tensor.cpu().numpy()
+
+            return calibrated_data
+
+        except Exception as e:
+            print(f"⚠️ AI校准应用失败: {e}")
+            return raw_data
+
+    def get_info(self):
+        """获取AI校准信息"""
+        if not self.is_loaded:
+            return None
+
+        return {
+            'is_loaded': True,
+            'coeffs_shape': self.coeffs.shape if self.coeffs is not None else None,
+            'device': str(self.device),
+            'coeffs_range': {
+                'a': [float(self.coeffs[:, 0].min()), float(self.coeffs[:, 0].max())],
+                'b': [float(self.coeffs[:, 1].min()), float(self.coeffs[:, 1].max())],
+                'c': [float(self.coeffs[:, 2].min()), float(self.coeffs[:, 2].max())]
+            } if self.coeffs is not None else None
+        }
+
 VALUE_DTYPE = float
 
 
@@ -46,6 +281,14 @@ class DataHandler:
         # 标定
         self.calibration_adaptor: CalibrateAdaptor = CalibrateAdaptor(self.driver, Algorithm)  # 标定器
         self.using_calibration = False
+        
+        # 添加balance-sensor校准适配器
+        self.balance_calibration_adaptor = BalanceSensorCalibrationAdapter()
+        self.using_balance_calibration = False
+
+        # 添加AI校准适配器
+        self.ai_calibration_adaptor = AICalibrationAdapter()
+        self.using_ai_calibration = False
         # 数据容器
         self.begin_time = None
         self.data = deque(maxlen=self.max_len)  # 直接从SensorDriver获得的数据
@@ -261,7 +504,18 @@ class DataHandler:
                 if self.filters_for_each is not None:
                     for k in self.filters_for_each:
                         _[k] = self.filters_for_each[k].filter(_[k])
+                
+                # 应用原始校准（如果启用）
                 value = self.calibration_adaptor.transform_frame(_.astype(float) * self.driver.SCALE)
+                
+                # # 应用balance-sensor校准（如果启用）
+                # if self.using_balance_calibration:
+                #     value = self.balance_calibration_adaptor.apply_calibration(value)
+
+                # 应用AI校准（如果启用）
+                if self.using_ai_calibration:
+                    value = self.ai_calibration_adaptor.apply_calibration(value)
+                
                 value = self.interpolation.smooth(value)
                 value_before_zero = value
                 _ = self.filter_after_zero.filter(value_before_zero - self.zero)
@@ -388,7 +642,79 @@ class DataHandler:
             raise e
 
     def abandon_calibrator(self):
-        self.calibration_adaptor = CalibrateAdaptor(self.driver, Algorithm)
-        self.abandon_zero()
-        self.clear()
+        """
+        解除标定
+        :return:
+        """
         self.using_calibration = False
+        self.calibration_adaptor = CalibrateAdaptor(self.driver, Algorithm)
+    
+    def set_balance_calibration(self, filepath):
+        """
+        设置balance-sensor校准文件
+        :param filepath: 校准文件路径
+        :return: 是否成功
+        """
+        try:
+            success = self.balance_calibration_adaptor.load_calibration(filepath)
+            if success:
+                self.using_balance_calibration = True
+                print(f"✅ 已启用balance-sensor校准: {filepath}")
+                return True
+            else:
+                print(f"❌ 启用balance-sensor校准时失败: {filepath}")
+                return False
+        except Exception as e:
+            print(f"⚠️ 设置balance-sensor校准时出错: {e}")
+            return False
+    
+    def abandon_balance_calibration(self):
+        """
+        解除balance-sensor校准
+        :return:
+        """
+        self.using_balance_calibration = False
+        self.balance_calibration_adaptor = BalanceSensorCalibrationAdapter()
+        print("✅ 已解除balance-sensor校准")
+    
+    def get_balance_calibration_info(self):
+        """
+        获取balance-sensor校准信息
+        :return: 校准信息字典
+        """
+        return self.balance_calibration_adaptor.get_info()
+
+    def set_ai_calibration(self, filepath):
+        """
+        设置AI校准模型
+        :param filepath: AI校准模型文件路径
+        :return: 是否成功
+        """
+        try:
+            success = self.ai_calibration_adaptor.load_calibration(filepath)
+            if success:
+                self.using_ai_calibration = True
+                print(f"✅ 已启用AI校准: {filepath}")
+                return True
+            else:
+                print(f"❌ 启用AI校准失败: {filepath}")
+                return False
+        except Exception as e:
+            print(f"⚠️ 设置AI校准时出错: {e}")
+            return False
+
+    def abandon_ai_calibration(self):
+        """
+        解除AI校准
+        :return:
+        """
+        self.using_ai_calibration = False
+        self.ai_calibration_adaptor = AICalibrationAdapter()
+        print("✅ 已解除AI校准")
+
+    def get_ai_calibration_info(self):
+        """
+        获取AI校准信息
+        :return: 校准信息字典
+        """
+        return self.ai_calibration_adaptor.get_info()
