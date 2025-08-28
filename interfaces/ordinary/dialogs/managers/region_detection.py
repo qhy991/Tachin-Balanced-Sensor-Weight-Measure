@@ -271,35 +271,67 @@ class RegionDetector:
             return raw_value
     
     def identify_calibrated_regions(self, data, threshold_percentile=80, max_regions=2, use_calibration=False):
-        """识别校准后的数据中的高响应区域（基于压力强度，而非面积）"""
+        """识别校准后的数据中的高响应区域（改进版：结合边缘检测和智能阈值）"""
         try:
-            print(f"🔍 开始识别校准区域（基于压力强度）...")
+            print(f"🔍 开始识别校准区域（改进版算法）...")
             print(f"   数据范围: [{data.min():.2f}, {data.max():.2f}]")
             print(f"   阈值百分位: {threshold_percentile}%")
             print(f"   最大区域数: {max_regions}")
             
-            # 1. 阈值分割：使用百分位数确定阈值
-            threshold = np.percentile(data, threshold_percentile)
-            print(f"   压力阈值: {threshold:.2f}")
+            # 🔧 改进1：智能阈值调整
+            data_std = data.std()
+            data_range = data.max() - data.min()
+            
+            # 根据数据特性动态调整阈值
+            if data_std > data_range * 0.3:
+                # 数据变化大时，使用更严格的阈值
+                adjusted_threshold = min(threshold_percentile, 90)
+                print(f"   🔧 数据变化较大，调整阈值: {threshold_percentile}% → {adjusted_threshold}%")
+            else:
+                # 数据变化小时，使用更宽松的阈值
+                adjusted_threshold = min(threshold_percentile, 75)
+                print(f"   🔧 数据变化较小，调整阈值: {threshold_percentile}% → {adjusted_threshold}%")
+            
+            # 1. 改进的阈值分割
+            threshold = np.percentile(data, adjusted_threshold)
+            print(f"   最终压力阈值: {threshold:.2f}")
             
             # 2. 二值化：识别高于阈值的压力区域
             binary_mask = data > threshold
-            print(f"   激活点数: {binary_mask.sum()}")
+            print(f"   初始激活点数: {binary_mask.sum()}")
             
-            # 3. 形态学操作：去除噪声，连接断开的区域
-            kernel_size = 3
+            # 🔧 改进2：边缘检测预处理
+            # 使用Sobel算子检测边缘
+            sobel_x = cv2.Sobel(data.astype(np.float32), cv2.CV_64F, 1, 0, ksize=3)
+            sobel_y = cv2.Sobel(data.astype(np.float32), cv2.CV_64F, 0, 1, ksize=3)
+            edge_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
+            
+            # 边缘强度阈值
+            edge_threshold = np.percentile(edge_magnitude, 70)
+            edge_mask = edge_magnitude > edge_threshold
+            
+            print(f"   边缘检测完成，边缘点数: {edge_mask.sum()}")
+            
+            # 3. 改进的形态学操作：更精细的控制
+            # 使用更小的核，避免过度连接
+            kernel_size = 2  # 从3x3改为2x2
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
             
             # 开运算：去除小噪声
             opened_mask = cv2.morphologyEx(binary_mask.astype(np.uint8), cv2.MORPH_OPEN, kernel)
             print(f"   开运算后激活点数: {opened_mask.sum()}")
             
-            # 闭运算：填充小孔，连接断开的区域
+            # 闭运算：填充小孔，但使用更小的核
             closed_mask = cv2.morphologyEx(opened_mask, cv2.MORPH_CLOSE, kernel)
             print(f"   闭运算后激活点数: {closed_mask.sum()}")
             
+            # 🔧 改进3：结合边缘信息优化掩码
+            # 在边缘附近保留更多细节
+            refined_mask = closed_mask.copy()
+            refined_mask[edge_mask] = closed_mask[edge_mask]  # 边缘区域保持原状
+            
             # 4. 轮廓检测
-            contours, hierarchy = cv2.findContours(closed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, hierarchy = cv2.findContours(refined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             if not contours:
                 print("⚠️ 未找到任何轮廓")
@@ -307,31 +339,42 @@ class RegionDetector:
             
             print(f"   找到轮廓数量: {len(contours)}")
             
-            # 5. 🆕 改进：基于压力强度而非面积进行区域评分
+            # 5. 🔧 改进4：更智能的区域评分系统
             region_candidates = []
             for i, contour in enumerate(contours):
                 try:
                     # 计算基本特征
                     area = cv2.contourArea(contour)
-                    if area < 5:  # 最小面积过滤
+                    if area < 3:  # 降低最小面积要求
                         continue
                     
-                    # 🎯 关键改进：计算区域内的平均压力强度
-                    contour_mask = np.zeros_like(closed_mask)
+                    # 计算轮廓的几何特性
+                    perimeter = cv2.arcLength(contour, True)
+                    compactness = (4 * np.pi * area) / (perimeter * perimeter) if perimeter > 0 else 0
+                    
+                    # 过滤掉过于不规则的区域
+                    if compactness < 0.1:  # 紧凑度阈值
+                        print(f"     ⚠️ 轮廓 {i+1}: 紧凑度过低 ({compactness:.3f})，跳过")
+                        continue
+                    
+                    # 🎯 计算区域内的压力统计
+                    contour_mask = np.zeros_like(refined_mask)
                     cv2.fillPoly(contour_mask, [contour], 1)
                     
-                    # 计算区域内的压力统计
                     region_data = data * contour_mask
                     region_pressure_values = region_data[contour_mask == 1]
                     
                     if len(region_pressure_values) > 0:
                         avg_pressure = np.mean(region_pressure_values)
                         max_pressure = np.max(region_pressure_values)
-                        pressure_density = np.sum(region_pressure_values) / area  # 压力密度
+                        pressure_density = np.sum(region_pressure_values) / area
                         
-                        # 🆕 新的评分系统：基于压力强度而非面积
-                        # 综合考虑：平均压力 + 最大压力 + 压力密度
-                        pressure_score = (avg_pressure * 0.4 + max_pressure * 0.4 + pressure_density * 0.2)
+                        # 🔧 改进的评分系统：综合考虑多个因素
+                        # 压力强度 + 区域质量 + 紧凑度
+                        pressure_score = (avg_pressure * 0.35 + max_pressure * 0.35 + pressure_density * 0.15)
+                        quality_score = compactness * 0.15  # 紧凑度贡献
+                        
+                        total_score = pressure_score + quality_score
                         
                         # 创建区域候选
                         region_candidate = {
@@ -340,15 +383,18 @@ class RegionDetector:
                             'avg_pressure': avg_pressure,
                             'max_pressure': max_pressure,
                             'pressure_density': pressure_density,
-                            'pressure_score': pressure_score,  # 🆕 新的压力评分
+                            'pressure_score': pressure_score,
+                            'compactness': compactness,
+                            'quality_score': quality_score,
+                            'total_score': total_score,  # 🆕 综合评分
                             'contour_mask': contour_mask,
                             'index': i
                         }
                         region_candidates.append(region_candidate)
                         
-                        print(f"     轮廓 {i+1}: 面积={area:.1f}, 平均压力={avg_pressure:.2f}, "
-                              f"最大压力={max_pressure:.2f}, 压力密度={pressure_density:.2f}, "
-                              f"压力评分={pressure_score:.2f}")
+                        print(f"     轮廓 {i+1}: 面积={area:.1f}, 紧凑度={compactness:.3f}, "
+                              f"平均压力={avg_pressure:.2f}, 最大压力={max_pressure:.2f}, "
+                              f"压力密度={pressure_density:.2f}, 综合评分={total_score:.2f}")
                     else:
                         print(f"     ⚠️ 轮廓 {i+1}: 无法计算压力值")
                         
@@ -360,11 +406,11 @@ class RegionDetector:
                 print("⚠️ 没有有效的区域候选")
                 return []
             
-            # 🆕 改进：按压力评分排序，选择压力最强的区域
-            region_candidates.sort(key=lambda x: x['pressure_score'], reverse=True)
-            print(f"   📊 区域按压力强度排序完成")
+            # 🔧 改进5：按综合评分排序
+            region_candidates.sort(key=lambda x: x['total_score'], reverse=True)
+            print(f"   📊 区域按综合评分排序完成")
             
-            # 选择前N个压力最强的区域
+            # 选择前N个综合评分最高的区域
             selected_regions = region_candidates[:max_regions]
             
             # 转换为标准区域格式
@@ -375,14 +421,15 @@ class RegionDetector:
                     if region:
                         calibrated_regions.append(region)
                         print(f"   ✅ 选择区域 {i+1}: 面积={candidate['area']:.1f}, "
+                              f"紧凑度={candidate['compactness']:.3f}, "
                               f"平均压力={candidate['avg_pressure']:.2f}, "
-                              f"压力评分={candidate['pressure_score']:.2f}")
+                              f"综合评分={candidate['total_score']:.2f}")
                 except Exception as e:
                     print(f"   ❌ 创建区域 {i+1} 时出错: {e}")
                     continue
             
-            print(f"✅ 压力强度区域识别完成，选择了 {len(calibrated_regions)} 个区域")
-            print(f"   📊 检测基于压力强度排序，优先识别按压强度最高的区域")
+            print(f"✅ 改进版区域识别完成，选择了 {len(calibrated_regions)} 个区域")
+            print(f"   📊 检测基于综合评分排序，平衡压力强度和区域质量")
             
             return calibrated_regions
             

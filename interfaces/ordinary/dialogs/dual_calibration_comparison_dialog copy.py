@@ -26,13 +26,6 @@ from .managers.region_detection import RegionDetector  # 🔧 修复：使用man
 from .utils.region_renderer import RegionRenderer
 from .utils.configuration import ConfigurationManager
 
-# 导入新创建的管理器模块
-from .managers.ui_setup_manager import UISetupManager
-from .managers.data_update_manager import DataUpdateManager
-from .managers.statistics_calculator import StatisticsCalculator
-from .managers.file_operations import FileOperationsManager
-from .managers.region_analysis_manager import RegionAnalysisManager
-
 class DualCalibrationComparisonDialog(QtWidgets.QDialog):
     """双校准器实时比较对话框"""
     
@@ -71,13 +64,6 @@ class DualCalibrationComparisonDialog(QtWidgets.QDialog):
         self.comparison_manager = ComparisonManager()
         self.taring_manager = TaringManager(self)
         self.configuration_manager = ConfigurationManager()
-
-        # 初始化新的管理器模块
-        self.ui_setup_manager = UISetupManager(self)
-        self.data_update_manager = DataUpdateManager(self)
-        self.statistics_calculator = StatisticsCalculator(self)
-        self.file_operations_manager = FileOperationsManager(self)
-        self.region_analysis_manager = RegionAnalysisManager(self)
         
         self.setup_ui()
         self.setup_timer()
@@ -89,63 +75,379 @@ class DualCalibrationComparisonDialog(QtWidgets.QDialog):
         
     def setup_ui(self):
         """设置用户界面"""
-        # 使用UI设置管理器来创建界面
-        self.ui_setup_manager.setup_main_ui()
+        try:
+            print("🔧 开始设置双校准器比较对话框UI...")
+            
+            # 检查校准器状态（但不阻止UI创建）
+            try:
+                if hasattr(self.parent, 'calibration_manager'):
+                    print(f"✅ 找到calibration_manager")
+                    if hasattr(self.parent.calibration_manager, 'dual_calibration_mode'):
+                        print(f"   校准模式: {'新版本校准' if self.parent.calibration_manager.dual_calibration_mode else '单校准器'}")
+                    else:
+                        print(f"   校准模式: 未知")
+                    
+                    if hasattr(self.parent.calibration_manager, 'new_calibrator'):
+                        print(f"   新版本校准器: {self.parent.calibration_manager.new_calibrator is not None}")
+                    else:
+                        print(f"   新版本校准器: 未找到")
+                else:
+                    print("⚠️ 未找到calibration_manager，将创建基本UI")
+            except Exception as e:
+                print(f"⚠️ 检查校准器状态时出错: {e}，继续创建UI")
+            
+            self.setWindowTitle("新版本校准器实时监控")
+            self.setGeometry(100, 100, 1400, 800)
+            
+            # 主布局
+            layout = QtWidgets.QVBoxLayout()
+            
+            # 标题
+            title_label = QtWidgets.QLabel("新版本校准器实时监控")
+            title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
+            title_label.setAlignment(QtCore.Qt.AlignCenter)
+            layout.addWidget(title_label)
+            
+            # 控制按钮
+            control_layout = QtWidgets.QHBoxLayout()
+            
+            self.button_start_stop = QtWidgets.QPushButton("开始比较")
+            self.button_start_stop.clicked.connect(self.toggle_comparison)
+            self.button_start_stop.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; padding: 8px;")
+            control_layout.addWidget(self.button_start_stop)
+            
+            # 添加去皮功能按钮
+            self.button_taring = QtWidgets.QPushButton("执行去皮")
+            self.button_taring.clicked.connect(self.perform_taring)
+            self.button_taring.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; padding: 8px;")
+            control_layout.addWidget(self.button_taring)
+            
+            self.button_reset_taring = QtWidgets.QPushButton("重置去皮")
+            self.button_reset_taring.clicked.connect(self.reset_taring)
+            self.button_reset_taring.setStyleSheet("background-color: #e67e22; color: white; font-weight: bold; padding: 8px;")
+            control_layout.addWidget(self.button_reset_taring)
+            
+            # 🔍 新增：形态学区域识别控制
+            control_layout.addWidget(QtWidgets.QLabel("区域识别阈值:"))
+            self.threshold_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+            self.threshold_slider.setRange(50, 95)
+            self.threshold_slider.setValue(80)
+            self.threshold_slider.setToolTip("调整压力区域识别的阈值百分位数")
+            self.threshold_slider.valueChanged.connect(self.on_threshold_changed)
+            control_layout.addWidget(self.threshold_slider)
+            
+            self.threshold_label = QtWidgets.QLabel("80%")
+            self.threshold_label.setStyleSheet("color: #2c3e50; font-weight: bold; min-width: 40px;")
+            control_layout.addWidget(self.threshold_label)
+            
+            # 🆕 新增：区域数量配置控制
+            control_layout.addWidget(QtWidgets.QLabel("检测区域数量:"))
+            self.region_count_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+            self.region_count_slider.setRange(1, self.max_region_count)  # 支持1-10个区域
+            self.region_count_slider.setValue(self.default_region_count)  # 默认检测2个区域
+            self.region_count_slider.setToolTip(f"选择要检测的压力区域数量 (1-{self.max_region_count})")
+            self.region_count_slider.valueChanged.connect(self.on_region_count_changed)
+            control_layout.addWidget(self.region_count_slider)
+            
+            self.region_count_config_label = QtWidgets.QLabel(f"{self.default_region_count}")
+            self.region_count_config_label.setStyleSheet("color: #e74c3c; font-weight: bold; min-width: 30px;")
+            control_layout.addWidget(self.region_count_config_label)
+            
+            # 添加区域数量显示标签
+            self.region_count_label = QtWidgets.QLabel("区域: 0")
+            self.region_count_label.setStyleSheet("color: #e74c3c; font-weight: bold; min-width: 60px;")
+            control_layout.addWidget(self.region_count_label)
+            
+            self.button_identify_regions = QtWidgets.QPushButton("重新识别区域")
+            self.button_identify_regions.clicked.connect(self.manual_identify_regions)
+            self.button_identify_regions.setStyleSheet("background-color: #9b59b6; color: white; font-weight: bold; padding: 8px;")
+            control_layout.addWidget(self.button_identify_regions)
+            
+            self.button_save_screenshot = QtWidgets.QPushButton("保存截图")
+            self.button_save_screenshot.clicked.connect(self.save_screenshot)
+            self.button_save_screenshot.setStyleSheet("background-color: #3498db; color: white; font-weight: bold; padding: 8px;")
+            control_layout.addWidget(self.button_save_screenshot)
+            
+            self.button_close = QtWidgets.QPushButton("关闭")
+            self.button_close.clicked.connect(self.close)
+            self.button_close.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold; padding: 8px;")
+            control_layout.addWidget(self.button_close)
+            
+            # 添加设置基准数据按钮
+            self.button_set_baseline = QtWidgets.QPushButton("设置区域选取基准")
+            self.button_set_baseline.clicked.connect(self.set_baseline_for_region_selection)
+            self.button_set_baseline.setStyleSheet("background-color: #8e44ad; color: white; font-weight: bold; padding: 8px;")
+            control_layout.addWidget(self.button_set_baseline)
+            
+            # 添加重置基准数据按钮
+            self.button_reset_baseline = QtWidgets.QPushButton("重置区域选取基准")
+            self.button_reset_baseline.clicked.connect(self.reset_baseline_for_region_selection)
+            self.button_reset_baseline.setStyleSheet("background-color: #95a5a6; color: white; font-weight: bold; padding: 8px;")
+            control_layout.addWidget(self.button_reset_baseline)
 
-        # 设置统计管理器的标签
-        labels = self.ui_setup_manager.get_labels()
-        if 'raw_mean_label' in labels:
+            
+            control_layout.addStretch()
+            layout.addLayout(control_layout)
+            
+            # 热力图显示区域
+            heatmap_layout = QtWidgets.QHBoxLayout()
+            
+            # 原始数据热力图
+            raw_group = QtWidgets.QGroupBox("原始数据")
+            raw_layout = QtWidgets.QVBoxLayout()
+            self.raw_canvas = self.create_heatmap_canvas("原始数据")
+            raw_layout.addWidget(self.raw_canvas)
+            raw_group.setLayout(raw_layout)
+            heatmap_layout.addWidget(raw_group)
+            
+            # 新版本校准结果热力图
+            # 🆕 修复：总是创建新版本校准热力图，不依赖校准器状态
+            new_group = QtWidgets.QGroupBox("新版本校准")
+            new_layout = QtWidgets.QVBoxLayout()
+            self.new_canvas = self.create_heatmap_canvas("新版本校准")
+            new_layout.addWidget(self.new_canvas)
+            new_group.setLayout(new_layout)
+            heatmap_layout.addWidget(new_group)
+                
+            # 🆕 新增：Group Box: 用于显示去除基准数据后的变化量
+            change_data_group = QtWidgets.QGroupBox("去除基准后的变化量")
+            change_data_layout = QtWidgets.QVBoxLayout()
+            self.change_data_canvas = self.create_heatmap_canvas("变化量数据")
+            change_data_layout.addWidget(self.change_data_canvas)
+            change_data_group.setLayout(change_data_layout)
+            heatmap_layout.addWidget(change_data_group)
+            
+            # 🆕 新增：Group Box: 用于显示选中区域的新版本校准数据
+            region_calibration_group = QtWidgets.QGroupBox("选中区域的新版本校准数据")
+            region_calibration_layout = QtWidgets.QVBoxLayout()
+            self.region_calibration_canvas = self.create_heatmap_canvas("区域新版本校准数据")
+            region_calibration_layout.addWidget(self.region_calibration_canvas)
+            region_calibration_group.setLayout(region_calibration_layout)
+            heatmap_layout.addWidget(region_calibration_group)
+            
+            # 🆕 新增：Group Box: 用于显示检测区域的压强热力图
+            pressure_heatmap_group = QtWidgets.QGroupBox("检测区域压强热力图")
+            pressure_heatmap_layout = QtWidgets.QVBoxLayout()
+            self.pressure_heatmap_canvas = self.create_heatmap_canvas("检测区域压强 (kPa)")
+            pressure_heatmap_layout.addWidget(self.pressure_heatmap_canvas)
+            pressure_heatmap_group.setLayout(pressure_heatmap_layout)
+            heatmap_layout.addWidget(pressure_heatmap_group)
+            
+            # 新增：负值响应检测热力图
+            negative_response_group = QtWidgets.QGroupBox("负值响应检测")
+            negative_response_layout = QtWidgets.QVBoxLayout()
+            self.negative_response_canvas = self.create_heatmap_canvas("负值响应检测")
+            negative_response_layout.addWidget(self.negative_response_canvas)
+            negative_response_group.setLayout(negative_response_layout)
+            heatmap_layout.addWidget(negative_response_group)
+            
+            layout.addLayout(heatmap_layout)
+            
+            # 统计信息显示区域
+            stats_layout = QtWidgets.QHBoxLayout()
+            
+            # 原始数据统计
+            raw_stats_group = QtWidgets.QGroupBox("原始数据统计")
+            raw_stats_layout = QtWidgets.QVBoxLayout()
+            
+            # 🆕 新增：创建详细的统计标签
+            self.raw_mean_label = QtWidgets.QLabel("均值: 等待数据...")
+            self.raw_std_label = QtWidgets.QLabel("标准差: 等待数据...")
+            self.raw_min_label = QtWidgets.QLabel("最小值: 等待数据...")
+            self.raw_max_label = QtWidgets.QLabel("最大值: 等待数据...")
+            self.raw_range_label = QtWidgets.QLabel("范围: 等待数据...")
+            
+            # 设置样式
+            for label in [self.raw_mean_label, self.raw_std_label, self.raw_min_label, self.raw_max_label, self.raw_range_label]:
+                label.setStyleSheet("font-family: monospace; font-size: 11px; color: #3498db;")
+                raw_stats_layout.addWidget(label)
+            
+            raw_stats_group.setLayout(raw_stats_layout)
+            stats_layout.addWidget(raw_stats_group)
+            
+            # 新版本校准统计
+            # 🆕 修复：总是创建新版本校准统计，不依赖校准器状态
+            new_stats_group = QtWidgets.QGroupBox("新版本校准统计")
+            new_stats_layout = QtWidgets.QVBoxLayout()
+
+            # 🆕 新增：创建详细的统计标签
+            self.new_mean_label = QtWidgets.QLabel("均值: 等待数据...")
+            self.new_std_label = QtWidgets.QLabel("标准差: 等待数据...")
+            self.new_min_label = QtWidgets.QLabel("最小值: 等待数据...")
+            self.new_max_label = QtWidgets.QLabel("最大值: 等待数据...")
+            self.new_range_label = QtWidgets.QLabel("范围: 等待数据...")
+
+            # 设置样式
+            for label in [self.new_mean_label, self.new_std_label, self.new_min_label, self.new_max_label, self.new_range_label]:
+                label.setStyleSheet("font-family: monospace; font-size: 11px; color: #e74c3c;")
+                new_stats_layout.addWidget(label)
+
+            new_stats_group.setLayout(new_stats_layout)
+            stats_layout.addWidget(new_stats_group)
+                
+            # 🆕 新增：变化量数据统计框
+            self.change_data_stats_group = QtWidgets.QGroupBox("变化量数据统计")
+            change_data_stats_layout = QtWidgets.QVBoxLayout()
+            
+            # 🆕 新增：创建详细的变化量统计标签
+            self.change_data_mean_label = QtWidgets.QLabel("均值: 等待数据...")
+            self.change_data_std_label = QtWidgets.QLabel("标准差: 等待数据...")
+            self.change_data_min_label = QtWidgets.QLabel("最小值: 等待数据...")
+            self.change_data_max_label = QtWidgets.QLabel("最大值: 等待数据...")
+            self.change_data_range_label = QtWidgets.QLabel("范围: 等待数据...")
+            
+            # 设置样式
+            for label in [self.change_data_mean_label, self.change_data_std_label, self.change_data_min_label, self.change_data_max_label, self.change_data_range_label]:
+                label.setStyleSheet("font-family: monospace; font-size: 11px; color: #f39c12;")
+                change_data_stats_layout.addWidget(label)
+            
+            self.change_data_stats_group.setLayout(change_data_stats_layout)
+            stats_layout.addWidget(self.change_data_stats_group)
+            
+            # 🆕 新增：区域校准值统计框
+            self.region_calibration_stats_group = QtWidgets.QGroupBox("选中区域的新版本校准统计")
+            region_calibration_stats_layout = QtWidgets.QVBoxLayout()
+            
+            # 🆕 新增：创建详细的区域校准值统计标签
+            self.region_calibration_mean_label = QtWidgets.QLabel("均值: 等待数据...")
+            self.region_calibration_std_label = QtWidgets.QLabel("标准差: 等待数据...")
+            self.region_calibration_min_label = QtWidgets.QLabel("最小值: 等待数据...")
+            self.region_calibration_max_label = QtWidgets.QLabel("最大值: 等待数据...")
+            self.region_calibration_range_label = QtWidgets.QLabel("范围: 等待数据...")
+            self.region_calibration_sum_label = QtWidgets.QLabel("总和: 等待数据...")
+            
+            # 设置样式
+            for label in [self.region_calibration_mean_label, self.region_calibration_std_label, 
+                         self.region_calibration_min_label, self.region_calibration_max_label, 
+                         self.region_calibration_range_label, self.region_calibration_sum_label]:
+                label.setStyleSheet("font-family: monospace; font-size: 11px; color: #e67e22;")
+                region_calibration_stats_layout.addWidget(label)
+            
+            self.region_calibration_stats_group.setLayout(region_calibration_stats_layout)
+            stats_layout.addWidget(self.region_calibration_stats_group)
+            
+            # 🆕 新增：检测区域压强统计框
+            self.pressure_heatmap_stats_group = QtWidgets.QGroupBox("检测区域压强统计")
+            pressure_heatmap_stats_layout = QtWidgets.QVBoxLayout()
+            
+            # 🆕 新增：创建详细的压强统计标签
+            self.pressure_heatmap_mean_label = QtWidgets.QLabel("平均压强: 等待数据...")
+            self.pressure_heatmap_max_label = QtWidgets.QLabel("最大压强: 等待数据...")
+            self.pressure_heatmap_min_label = QtWidgets.QLabel("最小压强: 等待数据...")
+            self.pressure_heatmap_total_force_label = QtWidgets.QLabel("总力: 等待数据...")
+            self.pressure_heatmap_regions_label = QtWidgets.QLabel("检测区域数: 等待数据...")
+            
+            # 设置样式
+            for label in [self.pressure_heatmap_mean_label, self.pressure_heatmap_max_label, 
+                         self.pressure_heatmap_min_label, self.pressure_heatmap_total_force_label,
+                         self.pressure_heatmap_regions_label]:
+                label.setStyleSheet("font-family: monospace; font-size: 11px; color: #9b59b6;")
+                pressure_heatmap_stats_layout.addWidget(label)
+            
+            self.pressure_heatmap_stats_group.setLayout(pressure_heatmap_stats_layout)
+            stats_layout.addWidget(self.pressure_heatmap_stats_group)
+            
+            # 🆕 新增：两个区域的独立统计显示
+            # 区域1统计框
+            region1_stats_group = QtWidgets.QGroupBox("区域1统计")
+            region1_stats_layout = QtWidgets.QVBoxLayout()
+            self.region1_stats_label = QtWidgets.QLabel("等待区域1数据...")
+            self.region1_stats_label.setStyleSheet("font-family: monospace; font-size: 11px; color: #e67e22;")
+            region1_stats_layout.addWidget(self.region1_stats_label)
+            region1_stats_group.setLayout(region1_stats_layout)
+            stats_layout.addWidget(region1_stats_group)
+            
+            # 区域2统计框
+            region2_stats_group = QtWidgets.QGroupBox("区域2统计")
+            region2_stats_layout = QtWidgets.QVBoxLayout()
+            self.region2_stats_label = QtWidgets.QLabel("等待区域2数据...")
+            self.region2_stats_label.setStyleSheet("font-family: monospace; font-size: 11px; color: #9b59b6;")
+            region2_stats_layout.addWidget(self.region2_stats_label)
+            region2_stats_group.setLayout(region2_stats_layout)
+            stats_layout.addWidget(region2_stats_group)
+            
+            # 新增：负值响应统计信息框
+            negative_response_stats_group = QtWidgets.QGroupBox("负值响应统计")
+            negative_response_stats_layout = QtWidgets.QVBoxLayout()
+            self.negative_response_stats_label = QtWidgets.QLabel("等待数据...")
+            self.negative_response_stats_label.setStyleSheet("font-family: monospace; font-size: 12px; color: #e74c3c;")
+            negative_response_stats_layout.addWidget(self.negative_response_stats_label)
+            negative_response_stats_group.setLayout(negative_response_stats_layout)
+            stats_layout.addWidget(negative_response_stats_group)
+            
+            layout.addLayout(stats_layout)
+            
+            # 比较结果
+            comparison_group = QtWidgets.QGroupBox("比较结果")
+            comparison_layout = QtWidgets.QVBoxLayout()
+            self.comparison_label = QtWidgets.QLabel("等待比较数据...")
+            self.comparison_label.setStyleSheet("font-family: monospace; font-size: 12px; color: #e74c3c;")
+            comparison_layout.addWidget(self.comparison_label)
+            comparison_group.setLayout(comparison_layout)
+            layout.addWidget(comparison_group)
+            
+            self.setLayout(layout)
+            print("✅ 双校准器比较对话框UI设置完成")
+            
+            # 🆕 新增：加载用户配置偏好
+            self.load_user_preferences()
+            
+            # 🔧 重构：设置统计管理器的标签
             self.statistics_manager.setup_raw_labels({
-                'mean': labels['raw_mean_label'],
-                'std': labels['raw_std_label'],
-                'min': labels['raw_min_label'],
-                'max': labels['raw_max_label'],
-                'range': labels['raw_range_label']
+                'mean': self.raw_mean_label,
+                'std': self.raw_std_label,
+                'min': self.raw_min_label,
+                'max': self.raw_max_label,
+                'range': self.raw_range_label
             })
-
-        if 'new_mean_label' in labels:
+            
+            if hasattr(self, 'new_mean_label'):
                 self.statistics_manager.setup_new_labels({
-                'mean': labels['new_mean_label'],
-                'std': labels['new_std_label'],
-                'min': labels['new_min_label'],
-                'max': labels['new_max_label'],
-                'range': labels['new_range_label']
-            })
-
-        # 设置变化量统计标签
-        if 'change_data_mean_label' in labels:
+                    'mean': self.new_mean_label,
+                    'std': self.new_std_label,
+                    'min': self.new_min_label,
+                    'max': self.new_max_label,
+                    'range': self.new_range_label
+                })
+            
+            # 🆕 新增：设置变化量统计标签
+            if hasattr(self, 'change_data_mean_label'):
                 self.statistics_manager.setup_change_data_labels({
-                'mean': labels['change_data_mean_label'],
-                'std': labels['change_data_std_label'],
-                'min': labels['change_data_min_label'],
-                'max': labels['change_data_max_label'],
-                'range': labels['change_data_range_label']
-            })
-
-        # 设置区域校准值统计标签
-        if 'region_calibration_mean_label' in labels:
+                    'mean': self.change_data_mean_label,
+                    'std': self.change_data_std_label,
+                    'min': self.change_data_min_label,
+                    'max': self.change_data_max_label,
+                    'range': self.change_data_range_label
+                })
+            
+            # 🆕 新增：设置区域校准值统计标签
+            if hasattr(self, 'region_calibration_mean_label'):
                 self.statistics_manager.setup_region_calibration_labels({
-                'mean': labels['region_calibration_mean_label'],
-                'std': labels['region_calibration_std_label'],
-                'min': labels['region_calibration_min_label'],
-                'max': labels['region_calibration_max_label'],
-                'range': labels['region_calibration_range_label'],
-                'sum': labels['region_calibration_sum_label']
-            })
-
-        # 设置压强热力图统计标签
-        if 'pressure_heatmap_mean_label' in labels:
-            self.statistics_manager.setup_pressure_heatmap_labels({
-                'mean': labels['pressure_heatmap_mean_label'],
-                'max': labels['pressure_heatmap_max_label'],
-                'min': labels['pressure_heatmap_min_label'],
-                'total_force': labels['pressure_heatmap_total_force_label'],
-                'regions': labels['pressure_heatmap_regions_label']
-            })
-
-        # 设置比较管理器的标签
-        if hasattr(self, 'comparison_label'):
+                    'mean': self.region_calibration_mean_label,
+                    'std': self.region_calibration_std_label,
+                    'min': self.region_calibration_min_label,
+                    'max': self.region_calibration_max_label,
+                    'range': self.region_calibration_range_label,
+                    'sum': self.region_calibration_sum_label
+                })
+            
+            # 🆕 新增：设置压强热力图统计标签
+            if hasattr(self, 'pressure_heatmap_mean_label'):
+                self.statistics_manager.setup_pressure_heatmap_labels({
+                    'mean': self.pressure_heatmap_mean_label,
+                    'max': self.pressure_heatmap_max_label,
+                    'min': self.pressure_heatmap_min_label,
+                    'total_force': self.pressure_heatmap_total_force_label,
+                    'regions': self.pressure_heatmap_regions_label
+                })
+            
+            # 设置比较管理器的标签
             self.comparison_manager.set_comparison_label(self.comparison_label)
+            
+        except Exception as e:
+            print(f"❌ 设置双校准器比较对话框UI失败: {e}")
+            import traceback
+            traceback.print_exc()
     
     def update_single_heatmap(self, canvas, data):
         """辅助函数：更新单个热力图"""
@@ -348,15 +650,334 @@ class DualCalibrationComparisonDialog(QtWidgets.QDialog):
         
     def update_comparison(self):
         """更新比较数据"""
-        # 使用数据更新管理器来处理更新逻辑
-        self.data_update_manager.update_comparison()
+        try:
+            # 获取当前数据
+            if hasattr(self.parent, 'calibration_handler'):
+                raw_data = self.parent.calibration_handler._get_current_frame_data()
+            else:
+                raw_data = self.parent.get_current_frame_data()
+            
+            # 检查数据是否真的在变化
+            if hasattr(self, '_last_raw_data'):
+                if self._last_raw_data is not None:
+                    # 检查数据是否全为零
+                    if np.all(raw_data == 0):
+                        print("⚠️ 检测到原始数据全为零，可能传感器未连接或数据采集异常")
+                        # 即使数据为零，也要强制更新几次以显示校准效果
+                        if not hasattr(self, '_zero_data_count'):
+                            self._zero_data_count = 0
+                        self._zero_data_count += 1
+                        
+                        # 每5次零数据时强制更新一次
+                        if self._zero_data_count % 5 != 0:
+                            return
+                        else:
+                            print(f"📊 数据为零，强制更新校准结果 #{self._update_count + 1}")
+                    else:
+                        # 数据不为零，检查是否有变化
+                        data_diff = np.abs(raw_data - self._last_raw_data)
+                        max_diff = np.max(data_diff)
+                        
+                        # 如果绝对变化小于阈值，认为数据基本不变
+                        if max_diff < 1.0:  # 使用绝对阈值而不是相对阈值
+                            if not hasattr(self, '_no_change_count'):
+                                self._no_change_count = 0
+                            self._no_change_count += 1
+                            
+                            # 每8次无变化时强制更新一次
+                            if self._no_change_count % 8 != 0:
+                                return
+                            else:
+                                print(f"📊 数据变化很小，强制更新校准结果 #{self._update_count + 1}")
+                        else:
+                            # 数据有变化，重置计数器
+                            self._no_change_count = 0
+                            self._zero_data_count = 0
+                            print(f"🔄 检测到数据变化，最大变化: {max_diff:.4f}")
+                else:
+                    # 第一次运行，初始化
+                    print("🔄 首次运行，初始化数据")
+            else:
+                # 第一次运行，初始化
+                print("🔄 首次运行，初始化数据")
+            
+            self._last_raw_data = raw_data.copy()
+            
+            # 应用双校准器
+            if hasattr(self.parent, 'calibration_manager'):
+                calibration_results = self.parent.calibration_manager.apply_dual_calibration(raw_data)
+            else:
+                calibration_results = self.parent.apply_dual_calibration(raw_data)
+            
+            if calibration_results is None:
+                print("⚠️ 双校准器应用失败，跳过更新")
+                return
+            
+            self._update_count += 1
+            print(f"🔄 更新双校准器比较数据 #{self._update_count}")
+            
+            # 更新热力图
+            self.update_heatmaps(calibration_results)
+            
+            # 🎯 修复：在热力图更新完成后再更新统计信息，确保压力统计信息已准备好
+            self.update_statistics(calibration_results)
+            
+            # 更新比较结果
+            self.update_comparison_results(calibration_results)
+            
+        except Exception as e:
+            print(f"❌ 更新双校准器比较失败: {e}")
+            import traceback
+            traceback.print_exc()
     
+    def update_heatmaps(self, results):
+        """更新热力图"""
+        try:
+            print(f"🔄 更新双校准器比较数据 #{self._update_count}")
+            
+            # 🆕 修改：检查是否有必要的数据
+            if 'raw' not in results:
+                print("⚠️ 没有原始数据，跳过热力图更新")
+                return
+            
+            # 🎯 第一步：更新原始数据热力图
+            if 'raw' in results and hasattr(self, 'raw_canvas'):
+                raw_data = results['raw']['data']
+                self.update_single_heatmap(self.raw_canvas, raw_data)
+                print(f"✅ 原始数据热力图更新完成，数据范围: [{raw_data.min():.2f}, {raw_data.max():.2f}]")
+            
+            # 🎯 第二步：更新新版本校准热力图
+            if 'new' in results and hasattr(self, 'new_canvas'):
+                new_data = results['new']['data']
+                self.update_single_heatmap(self.new_canvas, new_data)
+                print(f"✅ 新版本校准热力图更新完成，数据范围: [{new_data.min():.2f}, {new_data.max():.2f}]")
+                
+                                                 # 🔧 修复：更新变化量数据热力图（移到区域检测之前）
+                change_data = None
+                if hasattr(self, 'change_data_canvas') and self.baseline_calibrated_data is not None:
+                    try:
+                        # 🔧 修复：使用去皮后的校准数据计算变化量
+                        # 根据用户要求：确保当前数据和基准数据类型一致
+                        current_raw = self.parent.calibration_handler._get_current_frame_data()
+                        current_calibration_results = self.parent.calibration_manager.apply_dual_calibration(current_raw)
+                        
+                        # ✅ 使用去皮后的校准数据，与基准数据类型保持一致
+                        if 'new' in current_calibration_results and 'data' in current_calibration_results['new']:
+                            current_calibrated_data = current_calibration_results['new']['data']
+                            data_type = "去皮后校准数据"
+                            print(f"   🔧 使用去皮后校准数据计算变化量（与基准数据类型一致）")
+                        else:
+                            print(f"   ❌ 无法获取当前校准数据，跳过变化量计算")
+                            change_data = None
+                            data_type = "无数据"
+                        
+                        # 计算变化量：当前去皮后校准数据 - 基准去皮后校准数据
+                        if current_calibrated_data is not None:
+                            change_data = current_calibrated_data - self.baseline_calibrated_data
+                            print(f"   🔧 变化量计算详情:")
+                            print(f"     基准数据范围: [{self.baseline_calibrated_data.min():.2f}, {self.baseline_calibrated_data.max():.2f}]")
+                            print(f"     当前数据范围: [{current_calibrated_data.min():.2f}, {current_calibrated_data.max():.2f}]")
+                            print(f"     数据类型: {data_type}")
+                            print(f"     变化量说明: 相对于未放物品状态的压力变化")
+                            print(f"     变化量范围: [{change_data.min():.2f}, {change_data.max():.2f}]")
+                            print(f"     变化量均值: {change_data.mean():.2f}")
+                            print(f"     变化量标准差: {change_data.std():.2f}")
+                        else:
+                            print(f"   ❌ 当前校准数据不可用，无法计算变化量")
+                            change_data = None
+                        
+                    except Exception as e:
+                        print(f"⚠️ 计算变化量失败: {e}")
+                        import traceback
+                        traceback.print_exc()
+                
+                # 🆕 新增：识别校准区域（基于变化量数据）
+                try:
+                    print(f"🔍 开始识别校准区域...")
+                    threshold_percentile = self.threshold_slider.value()
+                    
+                    # 🔧 修复：优先使用变化量数据进行区域检测
+                    if change_data is not None:
+                        print(f"   🎯 使用变化量数据进行区域检测")
+                        data_for_detection = change_data
+                        detection_method = "变化量数据"
+                    else:
+                        print(f"   ⚠️ 变化量数据不可用，使用校准数据进行区域检测")
+                        data_for_detection = new_data
+                        detection_method = "校准数据"
+                    
+                    calibrated_regions = self.identify_calibrated_regions(data_for_detection, threshold_percentile)
+                    
+                    if calibrated_regions:
+                        print(f"✅ 识别到 {len(calibrated_regions)} 个校准区域（基于{detection_method}）")
+                        # 更新区域数量显示
+                        if hasattr(self, 'region_count_label'):
+                            self.region_count_label.setText(f"主区域: {len(calibrated_regions)}")
+                            self.region_count_label.setStyleSheet("color: #27ae60; font-weight: bold; min-width: 60px;")
+                        
+                        # 将区域信息添加到results中，供其他方法使用
+                        if 'calibrated_regions' not in results:
+                            results['calibrated_regions'] = {}
+                        results['calibrated_regions']['regions'] = calibrated_regions
+                        
+                        # 在校准热力图上绘制区域
+                        new_fig = self.new_canvas.figure
+                        new_ax = new_fig.axes[0]
+                        self.draw_calibrated_regions_on_heatmap(new_ax, calibrated_regions, color='red', linewidth=3)
+                        new_fig.canvas.draw()
+                        
+                        # 🆕 新增：更新区域统计标签
+                        self._update_region_stats_labels(calibrated_regions, results)
+                        
+                        print(f"✅ 校准区域绘制完成")
+                    else:
+                        print(f"⚠️ 未识别到校准区域")
+                        # 更新区域数量显示
+                        if hasattr(self, 'region_count_label'):
+                            self.region_count_label.setText("主区域: 0")
+                            self.region_count_label.setStyleSheet("color: #e74c3c; font-weight: bold; min-width: 60px;")
+                        
+                        # 清空区域信息
+                        if 'calibrated_regions' in results:
+                            results['calibrated_regions']['regions'] = []
+                        
+                except Exception as e:
+                    print(f"⚠️ 区域识别失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
+                # 🆕 新增：更新变化量数据热力图（如果之前没有计算）
+                if change_data is not None:
+                    try:
+                        # 更新变化量热力图
+                        self.update_single_heatmap(self.change_data_canvas, change_data)
+                        
+                        # 将变化量数据添加到results中，供统计管理器使用
+                        if 'change_data' not in results:
+                            results['change_data'] = {}
+                        results['change_data']['data'] = change_data
+                        
+                        print(f"✅ 变化量数据热力图更新完成:")
+                        print(f"   变化量范围: [{change_data.min():.2f}, {change_data.max():.2f}]")
+                        print(f"   变化量均值: {change_data.mean():.2f}")
+                        print(f"   变化量标准差: {change_data.std():.2f}")
+                        
+                    except Exception as e:
+                        print(f"⚠️ 更新变化量数据热力图失败: {e}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    print("⚠️ 未设置基准数据或变化量画布不存在，跳过变化量热力图更新")
+            
+            # 🎯 第四步：负值响应检测和可视化
+            if hasattr(self, 'negative_response_canvas') and 'new' in results:
+                try:
+                    # 获取校准后的数据
+                    calibrated_data = results['new']['data']
 
+                    # 检测负值响应点
+                    negative_mask = calibrated_data < 0
+                    negative_count = np.sum(negative_mask)
+
+                    # 创建负值响应热力图数据
+                    negative_response_data = np.zeros_like(calibrated_data)
+                    negative_response_data[negative_mask] = calibrated_data[negative_mask]
+
+                    # 更新负值响应热力图
+                    self.update_single_heatmap(self.negative_response_canvas, negative_response_data)
+
+                    # 重要：每次都清除之前的标记，无论是否有新标记
+                    ax = self.negative_response_canvas.figure.axes[0]
+                    self._clear_negative_response_markers(ax)
+
+                    # 保存负值响应信息到results
+                    if 'negative_response' not in results:
+                        results['negative_response'] = {}
+
+                    if negative_count > 0:
+                        # 有负值响应时的详细信息
+                        negative_values = calibrated_data[negative_mask]
+                        negative_coords = np.where(negative_mask)
+
+                        results['negative_response'].update({
+                            'has_negative': True,
+                            'count': int(negative_count),
+                            'data': negative_response_data.copy(),
+                            'values': negative_values.tolist(),
+                            'coordinates': list(zip(negative_coords[0], negative_coords[1])),
+                            'min_value': float(negative_values.min()),
+                            'max_value': float(negative_values.max()),
+                            'mean_value': float(negative_values.mean()),
+                            'std_value': float(negative_values.std())
+                        })
+
+                        # 在负值响应热力图上标记负值点
+                        self.draw_negative_response_points(ax,
+                                                        negative_coords[0], negative_coords[1],
+                                                        calibrated_data[negative_mask])
+
+                        print(f"🔴 检测到 {negative_count} 个负值响应点!")
+                        print(f"   负值范围: [{negative_values.min():.2f}, {negative_values.max():.2f}]")
+                        print(f"   负值均值: {negative_values.mean():.2f}")
+                        print(f"   负值标准差: {negative_values.std():.2f}")
+                    else:
+                        # 没有负值响应
+                        results['negative_response'].update({
+                            'has_negative': False,
+                            'count': 0,
+                            'data': negative_response_data.copy()
+                        })
+                        print("✅ 未检测到负值响应点")
+
+                    # 更新画布
+                    self.negative_response_canvas.figure.canvas.draw()
+
+                except Exception as e:
+                    print(f"⚠️ 负值响应检测失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
+            # 🎯 第五步：使用统一方法将校准区域应用到所有热力图
+            calibrated_regions = results.get('calibrated_regions', {}).get('regions', [])
+            if calibrated_regions:
+                self._apply_regions_to_all_heatmaps(calibrated_regions, results)
+            else:
+                # 没有选中区域：更新区域数量显示
+                if hasattr(self, 'region_count_label'):
+                    self.region_count_label.setText("主区域: 0")
+                    self.region_count_label.setStyleSheet("color: #e74c3c; font-weight: bold; min-width: 60px;")
+                
+        except Exception as e:
+            print(f"❌ 更新热力图失败: {e}")
+            import traceback
+            traceback.print_exc()
     
     def update_statistics(self, results):
         """更新统计信息"""
-        # 使用统计计算器来处理统计更新
-        self.statistics_calculator.update_statistics(results)
+        print(f"🔧 开始更新统计信息...")
+        
+        # 使用StatisticsManager更新所有统计信息
+        self.statistics_manager.update_raw_statistics(results)
+        print(f"   ✅ 原始数据统计更新完成")
+        
+        self.statistics_manager.update_new_statistics(results)
+        print(f"   ✅ 新版本校准统计更新完成")
+        
+        self.statistics_manager.update_change_data_statistics(results)  # 🆕 新增：更新变化量统计
+        print(f"   ✅ 变化量统计更新完成")
+        
+        self.statistics_manager.update_region_calibration_statistics(results)  # 🆕 新增：更新区域校准值统计
+        print(f"   ✅ 区域校准值统计更新完成")
+        
+        # 🆕 新增：更新压强热力图统计
+        self.statistics_manager.update_pressure_heatmap_statistics(results)
+        print(f"   ✅ 压强热力图统计更新完成")
+
+        # 🆕 新增：更新负值响应统计
+        self._update_negative_response_statistics(results)
+        print(f"   ✅ 负值响应统计更新完成")
+
+        print(f"🎉 所有统计信息更新完成")
     
     def update_comparison_results(self, results):
         """更新比较结果"""
@@ -364,8 +985,14 @@ class DualCalibrationComparisonDialog(QtWidgets.QDialog):
     
     def save_screenshot(self):
         """保存截图"""
-        # 使用文件操作管理器来处理截图保存
-        self.file_operations_manager.save_screenshot()
+        try:
+            filename = f"双校准器比较_{time.strftime('%Y%m%d_%H%M%S')}.png"
+            self.grab().save(filename)
+            print(f"✅ 截图已保存: {filename}")
+            QtWidgets.QMessageBox.information(self, "保存成功", f"截图已保存为: {filename}")
+        except Exception as e:
+            print(f"❌ 保存截图失败: {e}")
+            QtWidgets.QMessageBox.critical(self, "保存失败", f"保存截图失败:\n{str(e)}")
     
     def perform_taring(self):
         """执行去皮操作"""
@@ -392,8 +1019,91 @@ class DualCalibrationComparisonDialog(QtWidgets.QDialog):
     
     def manual_identify_regions(self):
         """手动重新识别校准区域"""
-        # 使用区域分析管理器来处理区域识别
-        self.region_analysis_manager.manual_identify_regions()
+        try:
+            if hasattr(self, 'new_canvas'):
+                print("🔍 手动重新识别校准区域...")
+                
+                # 获取当前阈值
+                threshold_percentile = self.threshold_slider.value()
+                
+                # 获取最新的校准数据
+                raw_data = self.parent.calibration_handler._get_current_frame_data()
+                calibration_results = self.parent.calibration_manager.apply_new_calibration(raw_data)
+                
+                if 'new' in calibration_results:
+                    new_data = calibration_results['new']['data']
+                    
+                    # 🔧 修复：优先使用变化量数据进行区域检测
+                    data_for_detection = None
+                    detection_method = ""
+                    
+                    if self.baseline_calibrated_data is not None:
+                        try:
+                            # 🔧 修复：优先使用未去皮数据计算变化量
+                            if 'untared_data' in calibration_results['new']:
+                                current_untared = calibration_results['new']['untared_data']
+                                change_data = current_untared - self.baseline_calibrated_data
+                                data_for_detection = change_data
+                                detection_method = "未去皮变化量数据"
+                                print(f"🔧 手动识别：使用未去皮变化量数据进行区域检测")
+                                print(f"   变化量范围: [{change_data.min():.2f}, {change_data.max():.2f}]")
+                            else:
+                                # 如果没有未去皮数据，使用去皮后数据
+                                change_data = new_data - self.baseline_calibrated_data
+                                data_for_detection = change_data
+                                detection_method = "去皮后变化量数据"
+                                print(f"🔧 手动识别：使用去皮后变化量数据进行区域检测")
+                                print(f"   变化量范围: [{change_data.min():.2f}, {change_data.max():.2f}]")
+                        except Exception as e:
+                            print(f"⚠️ 计算变化量失败，使用校准数据: {e}")
+                            data_for_detection = new_data
+                            detection_method = "校准数据"
+                    else:
+                        print(f"⚠️ 未设置基准数据，使用校准数据进行区域检测")
+                        data_for_detection = new_data
+                        detection_method = "校准数据"
+                    
+                    # 重新识别区域
+                    calibrated_regions = self.identify_calibrated_regions(data_for_detection, threshold_percentile)
+                    
+                    # 更新校准热力图上的区域标记
+                    if calibrated_regions:
+                        new_fig = self.new_canvas.figure
+                        new_ax = new_fig.axes[0]
+                        self.draw_calibrated_regions_on_heatmap(new_ax, calibrated_regions, color='red', linewidth=3)
+                        new_fig.canvas.draw()
+                        
+                        # 显示识别结果
+                        QtWidgets.QMessageBox.information(
+                            self, 
+                            "区域识别完成", 
+                            f"成功识别出校准区域！\n"
+                            f"检测方法: {detection_method}\n"
+                            f"识别策略: 基于压力强度排序（优先识别按压强度最高的区域）\n"
+                            f"用户配置区域数量: {self.region_count_slider.value()}个\n"
+                            f"实际检测到区域: {len(calibrated_regions)}个\n"
+                            f"阈值: {threshold_percentile}%\n"
+                            f"区域已用不同颜色标记。\n\n"
+                            f"💡 提示：系统现在会优先识别压力值最高的区域，"
+                            f"而不是面积最大的区域，这样能更准确地找到实际的按压位置。"
+                        )
+                    else:
+                        QtWidgets.QMessageBox.warning(
+                            self, 
+                            "识别失败", 
+                            f"未识别出有效的校准区域。\n"
+                            f"检测方法: {detection_method}\n"
+                            f"当前阈值: {threshold_percentile}%\n"
+                            f"请尝试降低阈值或检查数据。"
+                        )
+                else:
+                    QtWidgets.QMessageBox.warning(self, "提示", "无法获取校准数据。")
+            else:
+                QtWidgets.QMessageBox.warning(self, "提示", "请先启动监控功能获取校准数据。")
+                
+        except Exception as e:
+            print(f"❌ 手动识别校准区域失败: {e}")
+            QtWidgets.QMessageBox.critical(self, "错误", f"手动识别失败:\n{str(e)}")
             
     def draw_calibrated_regions_on_heatmap(self, ax, regions, color='red', linewidth=3):
         """在校准热力图上绘制识别出的区域（使用轮廓跟踪）"""
@@ -866,18 +1576,6 @@ class DualCalibrationComparisonDialog(QtWidgets.QDialog):
             print(f"      数量: {len(negative_responses)}")
             print(f"      范围: [{negative_responses.min():.2f}, {negative_responses.max():.2f}]")
             print(f"      均值: {negative_responses.mean():.2f}")
-
-            # 打印负响应值对应点的坐标
-            print(f"\n   📍 区域内的负响应点坐标:")
-            negative_indices = np.where(region_response_values < 0)[0]
-            for i, idx in enumerate(negative_indices[:3]):  # 只显示前3个
-                row = idx // contour_mask.shape[1]
-                col = idx % contour_mask.shape[1]
-                response_val = region_response_values[idx]
-                print(f"     点{i+1}: 坐标({row:2d}, {col:2d}) | 响应值: {response_val:.3f}")
-
-            if len(negative_indices) > 3:
-                print(f"     ... 还有 {len(negative_indices) - 3} 个负响应点")
             
             # 🔧 修复：获取区域响应值数据
             if 'new' in results and 'data' in results['new']:
@@ -923,18 +1621,6 @@ class DualCalibrationComparisonDialog(QtWidgets.QDialog):
                     print(f"      负响应值对应的去皮前值均值: {negative_untared_values.mean():.2f}")
                     print(f"      整个区域的去皮前值范围: [{region_untared_values.min():.2f}, {region_untared_values.max():.2f}]")
                     print(f"      整个区域的去皮前值均值: {region_untared_values.mean():.2f}")
-
-                    # 打印负响应值对应点的坐标
-                    print(f"\n      📍 负响应值对应点的坐标信息:")
-                    negative_indices = np.where(contour_mask == 1)[0][negative_mask]
-                    for i, idx in enumerate(negative_indices):  # 只显示前5个
-                        row = idx // contour_mask.shape[1]
-                        col = idx % contour_mask.shape[1]
-                        raw_val = region_raw_values[negative_mask][i]
-                        response_val = region_response_values[negative_mask][i]
-                        untared_val = region_untared_values[negative_mask][i]
-                        print(f"        点{i+1}: 坐标({row:2d}, {col:2d}) | 原始值: {raw_val:.2f} | 响应值: {response_val:.2f} | 去皮前: {untared_val:.2f}")
-
                     
                     # 检查去皮前是否已有负值
                     negative_untared_count = np.sum(negative_untared_values < 0)
@@ -1343,8 +2029,6 @@ class DualCalibrationComparisonDialog(QtWidgets.QDialog):
             print(f"⚠️ 更新负值响应统计失败: {e}")
             if hasattr(self, 'negative_response_stats_label'):
                 self.negative_response_stats_label.setText("统计更新失败")
-
-
 
     def _clear_negative_response_markers(self, ax):
         """清除负值响应标记的专用方法"""

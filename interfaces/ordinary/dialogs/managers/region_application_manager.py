@@ -154,13 +154,14 @@ class RegionApplicationManager:
             # 🆕 新增：在压强热力图上绘制区域并显示压强值
             if hasattr(self, 'pressure_heatmap_canvas'):
                 print(f"   🎨 开始检查压强热力图...")
-                if calibrated_regions and 'raw' in results and 'data' in results['raw']:
-                    raw_data = results['raw']['data']
-                    print(f"     原始数据形状: {raw_data.shape}")
-                    print(f"     原始数据范围: [{raw_data.min():.2f}, {raw_data.max():.2f}]")
+                if calibrated_regions and 'new' in results and 'data' in results['new']:
+                    # 🔧 修复：使用校准后的数据而不是原始数据
+                    calibrated_data = results['new']['data']
+                    print(f"     校准后数据形状: {calibrated_data.shape}")
+                    print(f"     校准后数据范围: [{calibrated_data.min():.2f}, {calibrated_data.max():.2f}]")
                     
-                    # 创建压强热力图数据（只显示检测区域的压强值，其他区域设为0）
-                    pressure_heatmap_data = self._create_pressure_heatmap_data(calibrated_regions, raw_data)
+                    # 🔧 修复：创建压强热力图数据，使用校准后的数据
+                    pressure_heatmap_data = self._create_pressure_heatmap_data(calibrated_regions, calibrated_data)
                     
                     # 更新压强热力图
                     try:
@@ -175,7 +176,7 @@ class RegionApplicationManager:
                         # 在压强热力图上绘制区域轮廓（红色标记）
                         self.region_renderer.draw_calibrated_regions_on_heatmap(pressure_ax, calibrated_regions, color='red', linewidth=2)
                         print(f"   ✅ 压强热力图更新完成（红色轮廓）")
-                        print(f"     显示内容: 检测区域的校准压强值 (N)")
+                        print(f"     显示内容: 检测区域的校准压强值 (kPa)")
                         
                         # 更新压强热力图画布
                         pressure_fig.canvas.draw()
@@ -335,41 +336,57 @@ class RegionApplicationManager:
             print(f"       原始数据形状: {raw_data.shape}")
             print(f"       原始数据范围: [{raw_data.min():.2f}, {raw_data.max():.2f}]")
             
-            # 🆕 关键修复：强制使用torch校准包进行压强转换
-            if hasattr(self, 'region_detector') and self.region_detector.calibration_type == 'torch_package':
-                print(f"     🔧 使用torch校准包进行压强转换...")
+            # 🔧 修复：统一使用真实的压强转换，避免模拟转换
+            if hasattr(self, 'region_detector') and hasattr(self.region_detector, '_convert_to_pressure'):
+                print(f"     🔧 使用真实的压强转换函数...")
                 
                 for i, region in enumerate(calibrated_regions):
                     if 'contour_mask' in region:
                         region_mask = region['contour_mask']
                         region_raw_data = raw_data * region_mask
                         
-                        # 🆕 关键修复：转换为真正的压强值
-                        region_pressure = self.region_detector._apply_torch_calibration(region_raw_data)
+                        # 🔧 修复：使用真实的压强转换，而不是模拟转换
+                        try:
+                            # 尝试使用真实的压强转换
+                            region_pressure = self.region_detector._convert_to_pressure(region_raw_data)
+                            
+                            # 🔧 新增：检查转换结果是否有效
+                            if region_pressure is None:
+                                print(f"       ⚠️ 压强转换返回None，使用校准后数据")
+                                region_pressure = region_raw_data
+                            elif np.any(region_pressure < 0):
+                                print(f"       ⚠️ 压强转换包含负值，使用校准后数据")
+                                region_pressure = region_raw_data
+                            else:
+                                print(f"       区域 {i+1}: 真实压强转换完成")
+                                
+                        except Exception as e:
+                            print(f"       ⚠️ 真实压强转换失败: {e}")
+                            # 如果真实转换失败，使用校准后的数据作为压强值
+                            region_pressure = region_raw_data
+                            print(f"       区域 {i+1}: 使用校准后数据作为压强值")
                         
                         # 填充压强数据
                         pressure_heatmap_data[region_mask == 1] = region_pressure[region_mask == 1]
                         
                         print(f"       区域 {i+1}: 原始值范围[{region_raw_data.min():.2f}, {region_raw_data.max():.2f}]")
-                        print(f"       区域 {i+1}: 压强值范围[{region_pressure.min():.2f}, {region_pressure.max():.2f}] N")
+                        print(f"       区域 {i+1}: 压强值范围[{region_pressure.min():.2f}, {region_pressure.max():.2f}] kPa")
                 
-                print(f"     ✅ torch校准包压强转换完成")
+                print(f"     ✅ 真实压强转换完成")
                 return pressure_heatmap_data
                 
             else:
-                print(f"     ⚠️ torch校准包未加载，使用备用方法")
-                # 备用方法：将原始数据乘以一个转换系数，模拟压强值
-                conversion_factor = 0.1  # 示例：将响应值转换为压强
+                print(f"     ⚠️ 压强转换函数不可用，使用校准后数据")
+                # 🔧 修复：不再使用模拟转换，直接使用校准后的数据
                 for i, region in enumerate(calibrated_regions):
                     if 'contour_mask' in region:
                         region_mask = region['contour_mask']
                         region_raw_data = raw_data * region_mask
                         
-                        # 模拟压强转换
-                        simulated_pressure = region_raw_data * conversion_factor
-                        pressure_heatmap_data[region_mask == 1] = simulated_pressure[region_mask == 1]
+                        # 🔧 修复：直接使用校准后的数据，避免模拟转换
+                        pressure_heatmap_data[region_mask == 1] = region_raw_data[region_mask == 1]
                         
-                        print(f"       区域 {i+1}: 模拟压强转换，系数={conversion_factor}")
+                        print(f"       区域 {i+1}: 使用校准后数据，范围[{region_raw_data.min():.2f}, {region_raw_data.max():.2f}]")
                 
                 return pressure_heatmap_data
             
@@ -419,7 +436,7 @@ class RegionApplicationManager:
                     'pressure_range': float(np.max(non_zero_data) - np.min(non_zero_data))
                 }
                 
-                print(f"     🔧 压强统计: 平均={stats['mean_pressure']:.2f}N, 最大={stats['max_pressure']:.2f}N")
+                print(f"     🔧 压强统计: 平均={stats['mean_pressure']:.2f} kPa, 最大={stats['max_pressure']:.2f} kPa")
             else:
                 stats = {
                     'mean_pressure': 0.0,

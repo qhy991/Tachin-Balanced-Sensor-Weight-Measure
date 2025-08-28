@@ -330,17 +330,17 @@ class StatisticsManager:
         """更新压强热力图统计标签"""
         try:
             if 'mean' in self.pressure_heatmap_labels:
-                self.pressure_heatmap_labels['mean'].setText(f"平均压强: {mean_pressure:.2f} N")
+                self.pressure_heatmap_labels['mean'].setText(f"平均压强: {mean_pressure:.2f} kPa")
             if 'max' in self.pressure_heatmap_labels:
-                self.pressure_heatmap_labels['max'].setText(f"最大压强: {max_pressure:.2f} N")
+                self.pressure_heatmap_labels['max'].setText(f"最大压强: {max_pressure:.2f} kPa")
             if 'min' in self.pressure_heatmap_labels:
-                self.pressure_heatmap_labels['min'].setText(f"最小压强: {min_pressure:.2f} N")
+                self.pressure_heatmap_labels['min'].setText(f"最小压强: {min_pressure:.2f} kPa")
             if 'total_force' in self.pressure_heatmap_labels:
-                self.pressure_heatmap_labels['total_force'].setText(f"总力: {total_force:.2f} N")
+                self.pressure_heatmap_labels['total_force'].setText(f"总力: {total_force:.2f} kPa")
             if 'regions' in self.pressure_heatmap_labels:
                 self.pressure_heatmap_labels['regions'].setText(f"检测区域数: {regions_count}")
             
-            print(f"🔧 压强标签更新: 平均={mean_pressure:.2f}N, 最大={max_pressure:.2f}N")
+            print(f"🔧 压强标签更新: 平均={mean_pressure:.2f} kPa, 最大={max_pressure:.2f} kPa")
             
         except Exception as e:
             print(f"❌ 更新压强标签失败: {e}")
